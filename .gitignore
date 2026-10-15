@@ -1,0 +1,5 @@
+# Compiled simulator output
+*.vvp
+
+# Waveform dumps
+*.vcd
