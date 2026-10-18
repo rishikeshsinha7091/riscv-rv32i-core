@@ -4,7 +4,15 @@ A RISC-V RV32I processor core written in Verilog. RV32I is the base 32-bit integ
 
 ## Status
 
-Early development. So far the repository contains two small building blocks with self-checking testbenches: a 1-bit 2:1 mux and a D flip-flop with synchronous reset. No processor logic exists yet.
+Early development. So far the repository contains the datapath building blocks, each with a self-checking testbench. They are not connected into a processor yet: there is no instruction memory, decoder or control logic, and no program runs.
+
+| Module | Description |
+|---|---|
+| `mux2` | 1-bit 2:1 multiplexer |
+| `dff_sync_reset` | D flip-flop with synchronous reset |
+| `alu` | 32-bit ALU: add, sub, and, or, xor, sll, srl, sra, slt, sltu, plus a zero flag |
+| `regfile` | 32 x 32-bit register file: two read ports, one write port, x0 always reads 0 |
+| `pc_reg` | 32-bit program counter register with synchronous reset and a PC + 4 output |
 
 ## Repository layout
 
@@ -15,7 +23,7 @@ Early development. So far the repository contains two small building blocks with
 
 ## Running a test
 
-Requires Icarus Verilog (`iverilog` and `vvp`) on the PATH. On Windows, from the repository root, run `sim\run.cmd mux2` or `sim\run.cmd dff_sync_reset`. Each test prints PASS or FAIL. Waveforms are written to `sim/` and can be viewed with GTKWave.
+Requires Icarus Verilog (`iverilog` and `vvp`) on the PATH. On Windows, from the repository root, run `sim\run.cmd <module>` with a module name from the table above, for example `sim\run.cmd alu`. Each test prints PASS or FAIL. Waveforms are written to `sim/` and can be viewed with GTKWave.
 
 ## Planned
 
