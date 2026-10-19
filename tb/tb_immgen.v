@@ -115,6 +115,10 @@ check(32'h00000FFF, SEL_J, 32'h00000000);
 // Group G: undefined select gives 0
 check(32'hFFFFFFFF, 3'd5, 32'h00000000);
 
+// RARS-assembled vectors
+check(32'h00310863, SEL_B, 32'h00000010);
+check(32'hff5ff06f, SEL_J, 32'hFFFFFFF4);
+
 if (errors == 0)
 $display("PASS: immgen, %0d checks, 0 errors", checks);
 else
