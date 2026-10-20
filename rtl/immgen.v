@@ -4,11 +4,7 @@ input [2:0] imm_sel,
 output reg [31:0] imm
 );
 
-localparam SEL_I = 3'd0;
-localparam SEL_S = 3'd1;
-localparam SEL_B = 3'd2;
-localparam SEL_U = 3'd3;
-localparam SEL_J = 3'd4;
+`include "imm_codes.vh"
 
 always @(*) begin
 case (imm_sel)

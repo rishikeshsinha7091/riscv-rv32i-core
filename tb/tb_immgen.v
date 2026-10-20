@@ -9,11 +9,7 @@ wire [31:0] imm;
 integer checks;
 integer errors;
 
-localparam SEL_I = 3'd0;
-localparam SEL_S = 3'd1;
-localparam SEL_B = 3'd2;
-localparam SEL_U = 3'd3;
-localparam SEL_J = 3'd4;
+`include "imm_codes.vh"
 
 immgen dut (.inst(inst), .imm_sel(imm_sel), .imm(imm));
 
