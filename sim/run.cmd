@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0.."
 if "%~1"=="" goto usage
-iverilog -o sim\tb_%1.vvp rtl\%1.v tb\tb_%1.v
+iverilog -y rtl -I rtl -o sim\tb_%1.vvp rtl\%1.v tb\tb_%1.v
 if errorlevel 1 exit /b 1
 vvp sim\tb_%1.vvp
 exit /b 0
