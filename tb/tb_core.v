@@ -9,6 +9,8 @@ integer errors;
 
 core #(.PROGRAM("tests/alu_ops.hex")) u_alu_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/mem_ops.hex")) u_mem_ops (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/branch_ops.hex")) u_branch_ops (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/jal_ops.hex")) u_jal_ops (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -68,6 +70,25 @@ check_value("mem_ops mem[63]", u_mem_ops.u_dmem.mem[63], 32'd77);
 check_value("mem_ops mem[64]", u_mem_ops.u_dmem.mem[64], 32'd123);
 check_value("mem_ops mem[66]", u_mem_ops.u_dmem.mem[66], 32'hFFFFFFFB);
 check_value("mem_ops pc",  u_mem_ops.pc, 32'd40);
+
+// branch_ops: values worked out by hand from tests/branch_ops.asm
+check_value("branch_ops x1",  u_branch_ops.u_regfile.regs[1],  32'd7);
+check_value("branch_ops x2",  u_branch_ops.u_regfile.regs[2],  32'd7);
+check_value("branch_ops x3",  u_branch_ops.u_regfile.regs[3],  32'd5);
+check_value("branch_ops x10", u_branch_ops.u_regfile.regs[10], 32'hxxxxxxxx);
+check_value("branch_ops x11", u_branch_ops.u_regfile.regs[11], 32'd22);
+check_value("branch_ops x12", u_branch_ops.u_regfile.regs[12], 32'd33);
+check_value("branch_ops x14", u_branch_ops.u_regfile.regs[14], 32'd55);
+check_value("branch_ops pc",  u_branch_ops.pc, 32'd48);
+
+// jal_ops: values worked out by hand from tests/jal_ops.asm
+check_value("jal_ops x1", u_jal_ops.u_regfile.regs[1], 32'd1);
+check_value("jal_ops x2", u_jal_ops.u_regfile.regs[2], 32'd2);
+check_value("jal_ops x3", u_jal_ops.u_regfile.regs[3], 32'hxxxxxxxx);
+check_value("jal_ops x4", u_jal_ops.u_regfile.regs[4], 32'd4);
+check_value("jal_ops x5", u_jal_ops.u_regfile.regs[5], 32'd8);
+check_value("jal_ops x6", u_jal_ops.u_regfile.regs[6], 32'd36);
+check_value("jal_ops pc", u_jal_ops.pc, 32'd36);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
