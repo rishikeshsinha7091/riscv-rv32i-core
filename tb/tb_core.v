@@ -11,6 +11,8 @@ core #(.PROGRAM("tests/alu_ops.hex")) u_alu_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/mem_ops.hex")) u_mem_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/branch_ops.hex")) u_branch_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/jal_ops.hex")) u_jal_ops (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/loop_sum.hex")) u_loop_sum (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/unsupported.hex")) u_unsupported (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -89,6 +91,18 @@ check_value("jal_ops x4", u_jal_ops.u_regfile.regs[4], 32'd4);
 check_value("jal_ops x5", u_jal_ops.u_regfile.regs[5], 32'd8);
 check_value("jal_ops x6", u_jal_ops.u_regfile.regs[6], 32'd36);
 check_value("jal_ops pc", u_jal_ops.pc, 32'd36);
+
+// loop_sum: values worked out by hand from tests/loop_sum.asm
+check_value("loop_sum x1", u_loop_sum.u_regfile.regs[1], 32'd0);
+check_value("loop_sum x2", u_loop_sum.u_regfile.regs[2], 32'd15);
+check_value("loop_sum pc", u_loop_sum.pc, 32'd24);
+
+// unsupported: values worked out by hand from tests/unsupported.asm
+check_value("unsupported x1",  u_unsupported.u_regfile.regs[1],  32'd5);
+check_value("unsupported x2",  u_unsupported.u_regfile.regs[2],  32'd5);
+check_value("unsupported x14", u_unsupported.u_regfile.regs[14], 32'd77);
+check_value("unsupported x15", u_unsupported.u_regfile.regs[15], 32'd99);
+check_value("unsupported pc",  u_unsupported.pc, 32'd24);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
