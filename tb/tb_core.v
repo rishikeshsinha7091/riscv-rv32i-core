@@ -13,6 +13,7 @@ core #(.PROGRAM("tests/branch_ops.hex")) u_branch_ops (.clk(clk), .reset(reset))
 core #(.PROGRAM("tests/jal_ops.hex")) u_jal_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/loop_sum.hex")) u_loop_sum (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/unsupported.hex")) u_unsupported (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/alu_full.hex")) u_alu_full (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -103,6 +104,27 @@ check_value("unsupported x2",  u_unsupported.u_regfile.regs[2],  32'd7);
 check_value("unsupported x14", u_unsupported.u_regfile.regs[14], 32'd77);
 check_value("unsupported x15", u_unsupported.u_regfile.regs[15], 32'd99);
 check_value("unsupported pc",  u_unsupported.pc, 32'd32);
+
+// alu_full: values worked out by hand from tests/alu_full.asm
+check_value("alu_full x5",  u_alu_full.u_regfile.regs[5],  32'd6);
+check_value("alu_full x6",  u_alu_full.u_regfile.regs[6],  32'd96);
+check_value("alu_full x7",  u_alu_full.u_regfile.regs[7],  32'h1FFFFFFE);
+check_value("alu_full x8",  u_alu_full.u_regfile.regs[8],  32'hFFFFFFFE);
+check_value("alu_full x9",  u_alu_full.u_regfile.regs[9],  32'd0);
+check_value("alu_full x10", u_alu_full.u_regfile.regs[10], 32'd1);
+check_value("alu_full x11", u_alu_full.u_regfile.regs[11], 32'hFFFFFFF3);
+check_value("alu_full x12", u_alu_full.u_regfile.regs[12], 32'd1034);
+check_value("alu_full x13", u_alu_full.u_regfile.regs[13], 32'd1264);
+check_value("alu_full x14", u_alu_full.u_regfile.regs[14], 32'd0);
+check_value("alu_full x15", u_alu_full.u_regfile.regs[15], 32'd1);
+check_value("alu_full x16", u_alu_full.u_regfile.regs[16], 32'd1);
+check_value("alu_full x17", u_alu_full.u_regfile.regs[17], 32'd0);
+check_value("alu_full x18", u_alu_full.u_regfile.regs[18], 32'd192);
+check_value("alu_full x19", u_alu_full.u_regfile.regs[19], 32'h0FFFFFFF);
+check_value("alu_full x20", u_alu_full.u_regfile.regs[20], 32'hFFFFFFFF);
+check_value("alu_full x21", u_alu_full.u_regfile.regs[21], 32'd1);
+check_value("alu_full x22", u_alu_full.u_regfile.regs[22], 32'h80000000);
+check_value("alu_full pc",  u_alu_full.pc, 32'd88);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
