@@ -10,6 +10,7 @@ input reset
 wire [31:0] pc;
 wire [31:0] pc_plus4;
 wire [31:0] pc_target;
+wire [31:0] jalr_target;
 wire [31:0] next_pc;
 wire pc_src;
 
@@ -62,12 +63,15 @@ case (result_src)
 RES_ALU: result = alu_y;
 RES_MEM: result = mem_rdata;
 RES_PC4: result = pc_plus4;
+RES_IMM: result = imm;
+RES_TARGET: result = pc_target;
 default: result = 32'b0;
 endcase
 end
 
 assign pc_target = pc + imm;
 assign pc_src    = (branch & zero) | jump;
-assign next_pc   = pc_src ? pc_target : pc_plus4;
+assign jalr_target = {alu_y[31:1], 1'b0};
+assign next_pc   = jalr ? jalr_target : (pc_src ? pc_target : pc_plus4);
 
 endmodule

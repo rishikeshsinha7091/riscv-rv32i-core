@@ -28,6 +28,9 @@ localparam OP_RTYPE  = 7'b0110011;
 localparam OP_ITYPE  = 7'b0010011;
 localparam OP_BRANCH = 7'b1100011;
 localparam OP_JAL    = 7'b1101111;
+localparam OP_JALR   = 7'b1100111;
+localparam OP_LUI    = 7'b0110111;
+localparam OP_AUIPC  = 7'b0010111;
 
 localparam CLASS_ADD   = 2'b00;
 localparam CLASS_SUB   = 2'b01;
@@ -43,6 +46,9 @@ OP_LOAD:   valid = (funct3 == 3'b010);
 OP_STORE:  valid = (funct3 == 3'b010);
 OP_BRANCH: valid = (funct3 == 3'b000);
 OP_JAL:    valid = 1'b1;
+OP_LUI:    valid = 1'b1;
+OP_AUIPC:  valid = 1'b1;
+OP_JALR:   valid = (funct3 == 3'b000);
 OP_ITYPE: begin
 case (funct3)
 3'b001:  valid = (funct7 == 7'b0000000);
@@ -106,6 +112,23 @@ imm_sel    = SEL_J;
 result_src = RES_PC4;
 jump       = 1'b1;
 end
+OP_JALR: begin
+reg_write  = 1'b1;
+imm_sel    = SEL_I;
+alu_src    = 1'b1;
+result_src = RES_PC4;
+jalr       = 1'b1;
+end
+OP_LUI: begin
+reg_write  = 1'b1;
+imm_sel    = SEL_U;
+result_src = RES_IMM;
+end
+OP_AUIPC: begin
+reg_write  = 1'b1;
+imm_sel    = SEL_U;
+result_src = RES_TARGET;
+end
 default: begin
 end
 endcase
@@ -134,4 +157,3 @@ endcase
 end
 
 endmodule
-

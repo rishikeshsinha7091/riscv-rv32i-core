@@ -37,6 +37,7 @@ localparam OP_LUI    = 7'b0110111;
 localparam OP_JALR   = 7'b1100111;
 localparam OP_SYSTEM = 7'b1110011;
 localparam OP_FENCE  = 7'b0001111;
+localparam OP_AUIPC  = 7'b0010111;
 
 control dut (.opcode(opcode), .funct3(funct3), .funct7(funct7),
 .reg_write(reg_write), .imm_sel(imm_sel), .alu_src(alu_src), .alu_op(alu_op),
@@ -121,6 +122,9 @@ check("lw",   OP_LOAD,   3'b010, 7'b0000000, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, R
 check("sw",   OP_STORE,  3'b010, 7'b0000000, 1'b0, SEL_S, 1'b1, ALU_ADD, 1'b1, RES_ALU, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_WORD, 1'b0);
 check("beq",  OP_BRANCH, 3'b000, 7'b0000000, 1'b0, SEL_B, 1'b0, ALU_SUB, 1'b0, RES_ALU, 1'b1, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
 check("jal",  OP_JAL,    3'b000, 7'b0000000, 1'b1, SEL_J, 1'b0, ALU_ADD, 1'b0, RES_PC4, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
+check("jalr",  OP_JALR,  3'b000, 7'b0000000, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, RES_PC4,    1'b0, 1'b0, 1'b1, 1'b0, 1'b0, MEM_BYTE, 1'b0);
+check("lui",   OP_LUI,   3'b000, 7'b0000000, 1'b1, SEL_U, 1'b0, ALU_ADD, 1'b0, RES_IMM,    1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
+check("auipc", OP_AUIPC, 3'b000, 7'b0000000, 1'b1, SEL_U, 1'b0, ALU_ADD, 1'b0, RES_TARGET, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
 
 //          name    funct3   funct7       alu_op
 check_rtype("add",  3'b000, 7'b0000000, ALU_ADD);
@@ -159,6 +163,9 @@ check("sw f7=7F",   OP_STORE,  3'b010, 7'h7F, 1'b0, SEL_S, 1'b1, ALU_ADD, 1'b1, 
 check("beq f7=7F",  OP_BRANCH, 3'b000, 7'h7F, 1'b0, SEL_B, 1'b0, ALU_SUB, 1'b0, RES_ALU, 1'b1, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
 check("jal f3=111", OP_JAL,    3'b111, 7'h7F, 1'b1, SEL_J, 1'b0, ALU_ADD, 1'b0, RES_PC4, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
 check("jal f3=010", OP_JAL,    3'b010, 7'h2A, 1'b1, SEL_J, 1'b0, ALU_ADD, 1'b0, RES_PC4, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
+check("lui f3=111",   OP_LUI,   3'b111, 7'h7F, 1'b1, SEL_U, 1'b0, ALU_ADD, 1'b0, RES_IMM,    1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
+check("auipc f3=101", OP_AUIPC, 3'b101, 7'h2A, 1'b1, SEL_U, 1'b0, ALU_ADD, 1'b0, RES_TARGET, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
+check("jalr f7=7F",   OP_JALR,  3'b000, 7'h7F, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, RES_PC4,    1'b0, 1'b0, 1'b1, 1'b0, 1'b0, MEM_BYTE, 1'b0);
 
 // Group D: shift-immediates, where funct7 is a real function code: wrong values must give all zeros
 check_invalid("slli f7=01", OP_ITYPE, 3'b001, 7'b0000001);
@@ -184,13 +191,13 @@ check_invalid("ecall",      OP_SYSTEM, 3'b000, 7'b0000000);
 check_invalid("csrrw",      OP_SYSTEM, 3'b001, 7'b0000000);
 check_invalid("fence",      OP_FENCE,  3'b000, 7'b0000000);
 check_invalid("zero opcode", 7'b0000000, 3'b000, 7'b0000000);
+check_invalid("jalr f3=001", OP_JALR, 3'b001, 7'b0000000);
+check_invalid("jalr f3=111", OP_JALR, 3'b111, 7'b0000000);
 
 // Group G: not supported yet. A later build moves each row to Group A
 check_invalid("bne",   OP_BRANCH, 3'b001, 7'b0000000);
 check_invalid("lb",    OP_LOAD,   3'b000, 7'b0000000);
 check_invalid("sb",    OP_STORE,  3'b000, 7'b0000000);
-check_invalid("lui",   OP_LUI,    3'b000, 7'b0000000);
-check_invalid("jalr",  OP_JALR,   3'b000, 7'b0000000);
 
 // Group H: an unknown instruction (what imem gives after the program) must give definite zeros
 check_invalid("all x", 7'bxxxxxxx, 3'bxxx, 7'bxxxxxxx);
