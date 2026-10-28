@@ -28,9 +28,14 @@ wire [2:0] imm_sel;
 wire alu_src;
 wire [3:0] alu_op;
 wire mem_write;
-wire [1:0] result_src;
+wire [2:0] result_src;
 wire branch;
 wire jump;
+wire jalr;
+wire br_lt;
+wire br_inv;
+wire [1:0] mem_size;
+wire load_unsigned;
 
 pc_reg u_pc (.clk(clk), .reset(reset), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
 
@@ -38,7 +43,8 @@ imem #(.INIT_FILE(PROGRAM)) u_imem (.pc(pc), .instr(inst));
 
 control u_control (.opcode(inst[6:0]), .funct3(inst[14:12]), .funct7(inst[31:25]),
 .reg_write(reg_write), .imm_sel(imm_sel), .alu_src(alu_src), .alu_op(alu_op),
-.mem_write(mem_write), .result_src(result_src), .branch(branch), .jump(jump));
+.mem_write(mem_write), .result_src(result_src), .branch(branch), .jump(jump),
+.jalr(jalr), .br_lt(br_lt), .br_inv(br_inv), .mem_size(mem_size), .load_unsigned(load_unsigned));
 
 regfile u_regfile (.clk(clk), .we(reg_write), .waddr(inst[11:7]), .wdata(result),
 .raddr1(inst[19:15]), .raddr2(inst[24:20]), .rdata1(rdata1), .rdata2(rdata2));

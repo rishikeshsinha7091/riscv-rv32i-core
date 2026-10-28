@@ -7,14 +7,20 @@ output reg [2:0] imm_sel,
 output reg alu_src,
 output reg [3:0] alu_op,
 output reg mem_write,
-output reg [1:0] result_src,
+output reg [2:0] result_src,
 output reg branch,
-output reg jump
+output reg jump,
+output reg jalr,
+output reg br_lt,
+output reg br_inv,
+output reg [1:0] mem_size,
+output reg load_unsigned
 );
 
 `include "alu_codes.vh"
 `include "imm_codes.vh"
 `include "result_codes.vh"
+`include "mem_codes.vh"
 
 localparam OP_LOAD   = 7'b0000011;
 localparam OP_STORE  = 7'b0100011;
@@ -37,9 +43,15 @@ OP_LOAD:   valid = (funct3 == 3'b010);
 OP_STORE:  valid = (funct3 == 3'b010);
 OP_BRANCH: valid = (funct3 == 3'b000);
 OP_JAL:    valid = 1'b1;
-OP_ITYPE:  valid = (funct3 == 3'b000);
-OP_RTYPE:  valid = ((funct7 == 7'b0000000) && (funct3 == 3'b000 || funct3 == 3'b010 || funct3 == 3'b110 || funct3 == 3'b111))
-|| ((funct7 == 7'b0100000) && (funct3 == 3'b000));
+OP_ITYPE: begin
+case (funct3)
+3'b001:  valid = (funct7 == 7'b0000000);
+3'b101:  valid = (funct7 == 7'b0000000) || (funct7 == 7'b0100000);
+default: valid = 1'b1;
+endcase
+end
+OP_RTYPE:  valid = (funct7 == 7'b0000000)
+|| ((funct7 == 7'b0100000) && (funct3 == 3'b000 || funct3 == 3'b101));
 default:   valid = 1'b0;
 endcase
 end
@@ -52,6 +64,11 @@ mem_write  = 1'b0;
 result_src = RES_ALU;
 branch     = 1'b0;
 jump       = 1'b0;
+jalr       = 1'b0;
+br_lt      = 1'b0;
+br_inv     = 1'b0;
+mem_size   = MEM_BYTE;
+load_unsigned = 1'b0;
 alu_class  = CLASS_ADD;
 if (valid) begin
 case (opcode)
@@ -60,11 +77,14 @@ reg_write  = 1'b1;
 imm_sel    = SEL_I;
 alu_src    = 1'b1;
 result_src = RES_MEM;
+mem_size   = funct3[1:0];
+load_unsigned = funct3[2];
 end
 OP_STORE: begin
 imm_sel   = SEL_S;
 alu_src   = 1'b1;
 mem_write = 1'b1;
+mem_size  = funct3[1:0];
 end
 OP_RTYPE: begin
 reg_write = 1'b1;
@@ -99,7 +119,11 @@ CLASS_SUB: alu_op = ALU_SUB;
 CLASS_FUNCT: begin
 case (funct3)
 3'b000:  alu_op = (opcode[5] && funct7[5]) ? ALU_SUB : ALU_ADD;
+3'b001:  alu_op = ALU_SLL;
 3'b010:  alu_op = ALU_SLT;
+3'b011:  alu_op = ALU_SLTU;
+3'b100:  alu_op = ALU_XOR;
+3'b101:  alu_op = funct7[5] ? ALU_SRA : ALU_SRL;
 3'b110:  alu_op = ALU_OR;
 3'b111:  alu_op = ALU_AND;
 default: alu_op = ALU_ADD;
@@ -110,3 +134,4 @@ endcase
 end
 
 endmodule
+
