@@ -14,6 +14,7 @@ core #(.PROGRAM("tests/jal_ops.hex")) u_jal_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/loop_sum.hex")) u_loop_sum (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/unsupported.hex")) u_unsupported (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/alu_full.hex")) u_alu_full (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/upper_jalr.hex")) u_upper_jalr (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -125,6 +126,24 @@ check_value("alu_full x20", u_alu_full.u_regfile.regs[20], 32'hFFFFFFFF);
 check_value("alu_full x21", u_alu_full.u_regfile.regs[21], 32'd1);
 check_value("alu_full x22", u_alu_full.u_regfile.regs[22], 32'h80000000);
 check_value("alu_full pc",  u_alu_full.pc, 32'd88);
+
+// upper_jalr: values worked out by hand from tests/upper_jalr.asm
+check_value("upper_jalr x1",  u_upper_jalr.u_regfile.regs[1],  32'h12345000);
+check_value("upper_jalr x2",  u_upper_jalr.u_regfile.regs[2],  32'h00001800);
+check_value("upper_jalr x3",  u_upper_jalr.u_regfile.regs[3],  32'h12345678);
+check_value("upper_jalr x4",  u_upper_jalr.u_regfile.regs[4],  32'h80000000);
+check_value("upper_jalr x5",  u_upper_jalr.u_regfile.regs[5],  32'hFFFFF000);
+check_value("upper_jalr x6",  u_upper_jalr.u_regfile.regs[6],  32'h0000101C);
+check_value("upper_jalr x7",  u_upper_jalr.u_regfile.regs[7],  32'h00000020);
+check_value("upper_jalr x8",  u_upper_jalr.u_regfile.regs[8],  32'hFFFFF024);
+check_value("upper_jalr x9",  u_upper_jalr.u_regfile.regs[9],  32'h0000002C);
+check_value("upper_jalr x10", u_upper_jalr.u_regfile.regs[10], 32'd77);
+check_value("upper_jalr x11", u_upper_jalr.u_regfile.regs[11], 32'd5);
+check_value("upper_jalr x12", u_upper_jalr.u_regfile.regs[12], 32'h00000030);
+check_value("upper_jalr x13", u_upper_jalr.u_regfile.regs[13], 32'h00000038);
+check_value("upper_jalr x14", u_upper_jalr.u_regfile.regs[14], 32'hxxxxxxxx);
+check_value("upper_jalr x15", u_upper_jalr.u_regfile.regs[15], 32'd7);
+check_value("upper_jalr pc",  u_upper_jalr.pc, 32'd64);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
