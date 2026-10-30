@@ -65,6 +65,21 @@ wdata = d;
 end
 endtask
 
+task write_bytes;
+input [31:0] a;
+input [31:0] d;
+input [3:0] b;
+input [31:0] expected;
+begin
+be = b;
+addr = a;
+wdata = d;
+#6;
+compare(expected);
+#4;
+end
+endtask
+
 initial begin
 clk = 0;
 $dumpfile("sim/dmem.vcd");
@@ -99,6 +114,28 @@ read_check(32'h00000014, 32'hCAFEF00D);
 read_check(32'h00000011, 32'h0000002A);
 read_check(32'h00000012, 32'h0000002A);
 read_check(32'h00000013, 32'h0000002A);
+
+// byte lanes: a full-word write first, then change one lane or half at a time
+write_and_check(32'h00000020, 32'h11223344, 32'hxxxxxxxx);
+write_bytes(32'h00000020, 32'hAAAAAAAA, 4'b0001, 32'h112233AA);
+write_bytes(32'h00000020, 32'hBBBBBBBB, 4'b0010, 32'h1122BBAA);
+write_bytes(32'h00000020, 32'hCCCCCCCC, 4'b0100, 32'h11CCBBAA);
+write_bytes(32'h00000020, 32'hDDDDDDDD, 4'b1000, 32'hDDCCBBAA);
+
+// half-words: the data bytes differ, so a lane that takes the wrong byte shows up
+write_bytes(32'h00000020, 32'h56781234, 4'b0011, 32'hDDCC1234);
+write_bytes(32'h00000020, 32'h9ABC5555, 4'b1100, 32'h9ABC1234);
+
+// two lanes that are not next to each other, and no lane at all
+write_bytes(32'h00000020, 32'hEE0000FF, 4'b1001, 32'hEEBC12FF);
+write_bytes(32'h00000020, 32'hFFFFFFFF, 4'b0000, 32'hEEBC12FF);
+
+// the neighbouring words were never written
+read_check(32'h00000024, 32'hxxxxxxxx);
+read_check(32'h0000001C, 32'hxxxxxxxx);
+
+// a lane write into a word that was never written leaves the other lanes unknown
+write_bytes(32'h00000030, 32'h000000A5, 4'b0001, 32'hxxxxxxA5);
 
 if (errors == 0)
 $display("PASS: dmem, %0d checks, 0 errors", checks);
