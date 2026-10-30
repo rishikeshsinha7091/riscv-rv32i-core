@@ -15,6 +15,7 @@ core #(.PROGRAM("tests/loop_sum.hex")) u_loop_sum (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/unsupported.hex")) u_unsupported (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/alu_full.hex")) u_alu_full (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/upper_jalr.hex")) u_upper_jalr (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/branch_all.hex")) u_branch_all (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -144,6 +145,25 @@ check_value("upper_jalr x13", u_upper_jalr.u_regfile.regs[13], 32'h00000038);
 check_value("upper_jalr x14", u_upper_jalr.u_regfile.regs[14], 32'hxxxxxxxx);
 check_value("upper_jalr x15", u_upper_jalr.u_regfile.regs[15], 32'd7);
 check_value("upper_jalr pc",  u_upper_jalr.pc, 32'd64);
+
+// branch_all: 1 = branch taken, 0 = not taken. Values worked out by hand from tests/branch_all.asm
+check_value("branch_all x8",  u_branch_all.u_regfile.regs[8],  32'd0);
+check_value("branch_all x9",  u_branch_all.u_regfile.regs[9],  32'd1);
+check_value("branch_all x10", u_branch_all.u_regfile.regs[10], 32'd1);
+check_value("branch_all x11", u_branch_all.u_regfile.regs[11], 32'd0);
+check_value("branch_all x12", u_branch_all.u_regfile.regs[12], 32'd0);
+check_value("branch_all x13", u_branch_all.u_regfile.regs[13], 32'd1);
+check_value("branch_all x14", u_branch_all.u_regfile.regs[14], 32'd0);
+check_value("branch_all x15", u_branch_all.u_regfile.regs[15], 32'd1);
+check_value("branch_all x16", u_branch_all.u_regfile.regs[16], 32'd0);
+check_value("branch_all x17", u_branch_all.u_regfile.regs[17], 32'd1);
+check_value("branch_all x18", u_branch_all.u_regfile.regs[18], 32'd0);
+check_value("branch_all x19", u_branch_all.u_regfile.regs[19], 32'd1);
+check_value("branch_all x20", u_branch_all.u_regfile.regs[20], 32'd1);
+check_value("branch_all x21", u_branch_all.u_regfile.regs[21], 32'd1);
+check_value("branch_all x22", u_branch_all.u_regfile.regs[22], 32'd0);
+check_value("branch_all x23", u_branch_all.u_regfile.regs[23], 32'd1);
+check_value("branch_all pc",  u_branch_all.pc, 32'd220);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
