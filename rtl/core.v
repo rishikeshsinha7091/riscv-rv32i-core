@@ -57,7 +57,7 @@ assign alu_b = alu_src ? imm : rdata2;
 
 alu u_alu (.a(rdata1), .b(alu_b), .alu_op(alu_op), .y(alu_y), .zero(zero));
 
-dmem u_dmem (.clk(clk), .we(mem_write), .addr(alu_y), .wdata(rdata2), .rdata(mem_rdata));
+dmem u_dmem (.clk(clk), .be({4{mem_write}}), .addr(alu_y), .wdata(rdata2), .rdata(mem_rdata));
 
 always @(*) begin
 case (result_src)

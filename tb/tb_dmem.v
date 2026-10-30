@@ -3,7 +3,7 @@
 module tb_dmem;
 
 reg clk;
-reg we;
+reg [3:0] be;
 reg [31:0] addr;
 reg [31:0] wdata;
 wire [31:0] rdata;
@@ -11,7 +11,7 @@ wire [31:0] rdata;
 integer checks;
 integer errors;
 
-dmem dut (.clk(clk), .we(we), .addr(addr), .wdata(wdata), .rdata(rdata));
+dmem dut (.clk(clk), .be(be), .addr(addr), .wdata(wdata), .rdata(rdata));
 
 always #5 clk = ~clk;
 
@@ -30,7 +30,7 @@ task read_check;
 input [31:0] a;
 input [31:0] expected;
 begin
-we = 0;
+be = 4'b0000;
 addr = a;
 #1;
 compare(expected);
@@ -43,7 +43,7 @@ input [31:0] a;
 input [31:0] d;
 input [31:0] old_value;
 begin
-we = 1;
+be = 4'b1111;
 addr = a;
 wdata = d;
 #4;
@@ -58,7 +58,7 @@ task write_disabled;
 input [31:0] a;
 input [31:0] d;
 begin
-we = 0;
+be = 4'b0000;
 addr = a;
 wdata = d;
 #10;
@@ -71,7 +71,7 @@ $dumpfile("sim/dmem.vcd");
 $dumpvars(0, tb_dmem);
 checks = 0;
 errors = 0;
-we = 0;
+be = 4'b0000;
 addr = 0;
 wdata = 0;
 
@@ -82,7 +82,7 @@ read_check(32'h00000010, 32'hxxxxxxxx);
 write_and_check(32'h00000010, 32'hDEADBEEF, 32'hxxxxxxxx);
 read_check(32'h00000010, 32'hDEADBEEF);
 
-// write attempt with we = 0 changes nothing
+// write attempt with be = 0000 changes nothing
 write_disabled(32'h00000010, 32'h12345678);
 read_check(32'h00000010, 32'hDEADBEEF);
 
