@@ -13,6 +13,7 @@ wire [31:0] pc_target;
 wire [31:0] jalr_target;
 wire [31:0] next_pc;
 wire pc_src;
+wire taken;
 
 wire [31:0] inst;
 wire [31:0] imm;
@@ -70,7 +71,8 @@ endcase
 end
 
 assign pc_target = pc + imm;
-assign pc_src    = (branch & zero) | jump;
+assign taken     = (br_lt ? alu_y[0] : zero) ^ br_inv;
+assign pc_src    = (branch & taken) | jump;
 assign jalr_target = {alu_y[31:1], 1'b0};
 assign next_pc   = jalr ? jalr_target : (pc_src ? pc_target : pc_plus4);
 

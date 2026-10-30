@@ -32,9 +32,9 @@ localparam OP_JALR   = 7'b1100111;
 localparam OP_LUI    = 7'b0110111;
 localparam OP_AUIPC  = 7'b0010111;
 
-localparam CLASS_ADD   = 2'b00;
-localparam CLASS_SUB   = 2'b01;
-localparam CLASS_FUNCT = 2'b10;
+localparam CLASS_ADD    = 2'b00;
+localparam CLASS_FUNCT  = 2'b10;
+localparam CLASS_BRANCH = 2'b11;
 
 reg valid;
 reg [1:0] alu_class;
@@ -44,7 +44,7 @@ valid = 1'b0;
 case (opcode)
 OP_LOAD:   valid = (funct3 == 3'b010);
 OP_STORE:  valid = (funct3 == 3'b010);
-OP_BRANCH: valid = (funct3 == 3'b000);
+OP_BRANCH: valid = (funct3 != 3'b010) && (funct3 != 3'b011);
 OP_JAL:    valid = 1'b1;
 OP_LUI:    valid = 1'b1;
 OP_AUIPC:  valid = 1'b1;
@@ -104,7 +104,9 @@ end
 OP_BRANCH: begin
 imm_sel   = SEL_B;
 branch    = 1'b1;
-alu_class = CLASS_SUB;
+br_lt     = funct3[2];
+br_inv    = funct3[0];
+alu_class = CLASS_BRANCH;
 end
 OP_JAL: begin
 reg_write  = 1'b1;
@@ -138,7 +140,14 @@ end
 always @(*) begin
 case (alu_class)
 CLASS_ADD: alu_op = ALU_ADD;
-CLASS_SUB: alu_op = ALU_SUB;
+CLASS_BRANCH: begin
+if (!funct3[2])
+alu_op = ALU_SUB;
+else if (funct3[1])
+alu_op = ALU_SLTU;
+else
+alu_op = ALU_SLT;
+end
 CLASS_FUNCT: begin
 case (funct3)
 3'b000:  alu_op = (opcode[5] && funct7[5]) ? ALU_SUB : ALU_ADD;
