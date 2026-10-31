@@ -17,6 +17,7 @@ core #(.PROGRAM("tests/alu_full.hex")) u_alu_full (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/upper_jalr.hex")) u_upper_jalr (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/branch_all.hex")) u_branch_all (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/byte_ops.hex")) u_byte_ops (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/checksum.hex")) u_checksum (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -185,6 +186,29 @@ check_value("byte_ops mem64", u_byte_ops.u_dmem.mem[64], 32'h80FF7F01);
 check_value("byte_ops mem65", u_byte_ops.u_dmem.mem[65], 32'h04560123);
 check_value("byte_ops mem66", u_byte_ops.u_dmem.mem[66], 32'hxxxxxxxx);
 check_value("byte_ops pc",  u_byte_ops.pc, 32'd132);
+
+// checksum: values worked out by hand from tests/checksum.asm. Word 128 is address 0x200, 129 is 0x204, 130 is 0x208
+check_value("checksum x1",  u_checksum.u_regfile.regs[1],  32'h00000200);
+check_value("checksum x2",  u_checksum.u_regfile.regs[2],  32'd605);
+check_value("checksum x6",  u_checksum.u_regfile.regs[6],  32'h00000030);
+check_value("checksum x12", u_checksum.u_regfile.regs[12], 32'd438);
+check_value("checksum x13", u_checksum.u_regfile.regs[13], 32'h00000048);
+check_value("checksum x14", u_checksum.u_regfile.regs[14], 32'h01B60048);
+check_value("checksum x15", u_checksum.u_regfile.regs[15], 32'hCAFEF00D);
+check_value("checksum x16", u_checksum.u_regfile.regs[16], 32'hCB48F045);
+check_value("checksum x17", u_checksum.u_regfile.regs[17], 32'h0000F045);
+check_value("checksum x18", u_checksum.u_regfile.regs[18], 32'hFFFFCB48);
+check_value("checksum x19", u_checksum.u_regfile.regs[19], 32'hFFFFFFCB);
+check_value("checksum x20", u_checksum.u_regfile.regs[20], 32'hFFFFFFCB);
+check_value("checksum x21", u_checksum.u_regfile.regs[21], 32'd0);
+check_value("checksum x22", u_checksum.u_regfile.regs[22], 32'h00000070);
+check_value("checksum x23", u_checksum.u_regfile.regs[23], 32'd0);
+check_value("checksum x24", u_checksum.u_regfile.regs[24], 32'd1);
+check_value("checksum x25", u_checksum.u_regfile.regs[25], 32'd1);
+check_value("checksum mem128", u_checksum.u_dmem.mem[128], 32'hCA37A411);
+check_value("checksum mem129", u_checksum.u_dmem.mem[129], 32'hxxxxxxxx);
+check_value("checksum mem130", u_checksum.u_dmem.mem[130], 32'hCB48F045);
+check_value("checksum pc",  u_checksum.pc, 32'd116);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
