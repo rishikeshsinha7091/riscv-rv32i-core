@@ -19,8 +19,47 @@ core #(.PROGRAM("tests/branch_all.hex")) u_branch_all (.clk(clk), .reset(reset))
 core #(.PROGRAM("tests/byte_ops.hex")) u_byte_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/checksum.hex")) u_checksum (.clk(clk), .reset(reset));
 core #(.PROGRAM("sw/first.hex"), .DATA("sw/first.data.hex")) u_c_first (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/xpc.hex")) u_xpc (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
+
+// "done" detection: a core is done when its PC has a known value and has not changed for STABLE_CYCLES clock edges in a row.
+// xpc (index 12) is watched too, but the wait below does not depend on it: its PC is unknown forever, so it must never be done.
+localparam NPROG = 13;
+localparam STABLE_CYCLES = 4;
+localparam MAX_CYCLES = 20000;
+localparam [NPROG-1:0] WAIT_MASK = 13'h0FFF;
+
+wire [32*NPROG-1:0] pcs = {u_xpc.pc, u_c_first.pc, u_checksum.pc, u_byte_ops.pc, u_branch_all.pc, u_upper_jalr.pc, u_alu_full.pc, u_unsupported.pc, u_loop_sum.pc, u_jal_ops.pc, u_branch_ops.pc, u_mem_ops.pc, u_alu_ops.pc};
+
+reg [31:0] prev_pc [0:NPROG-1];
+integer stable [0:NPROG-1];
+reg [NPROG-1:0] done;
+integer cycle;
+integer i;
+integer j;
+
+initial begin
+cycle = 0;
+done = 0;
+for (i = 0; i < NPROG; i = i + 1) begin
+prev_pc[i] = 32'hxxxxxxxx;
+stable[i] = 0;
+end
+end
+
+always @(posedge clk) begin
+if (!reset) begin
+cycle = cycle + 1;
+for (j = 0; j < NPROG; j = j + 1) begin
+if ((^pcs[32*j +: 32]) === 1'bx) stable[j] = 0;
+else if (pcs[32*j +: 32] === prev_pc[j]) stable[j] = stable[j] + 1;
+else stable[j] = 0;
+prev_pc[j] = pcs[32*j +: 32];
+if (stable[j] >= STABLE_CYCLES) done[j] = 1'b1;
+end
+end
+end
 
 task check_value;
 input [8*16-1:0] name;
@@ -45,8 +84,28 @@ errors = 0;
 
 @(negedge clk);
 reset = 0;
-repeat (100) @(posedge clk);
+// wait until every real program is done, or until the timeout; looking at falling edges avoids a race with the detector
+while (((done & WAIT_MASK) !== WAIT_MASK) && (cycle < MAX_CYCLES)) @(negedge clk);
 #1;
+
+// every program must be done (PC known and unchanged) before its values mean anything
+$display("INFO: core: waited %0d cycles", cycle);
+check_value("alu_ops done",     done[0],  1);
+check_value("mem_ops done",     done[1],  1);
+check_value("branch_ops done",  done[2],  1);
+check_value("jal_ops done",     done[3],  1);
+check_value("loop_sum done",    done[4],  1);
+check_value("unsupported done", done[5],  1);
+check_value("alu_full done",    done[6],  1);
+check_value("upper_jalr done",  done[7],  1);
+check_value("branch_all done",  done[8],  1);
+check_value("byte_ops done",    done[9],  1);
+check_value("checksum done",    done[10], 1);
+check_value("c_first done",     done[11], 1);
+
+// xpc: the PC is unknown for ever, so the core must never be called done
+check_value("xpc not done",     done[12], 0);
+check_value("xpc pc",           u_xpc.pc, 32'hxxxxxxxx);
 
 // alu_ops: values worked out by hand from tests/alu_ops.asm
 check_value("alu_ops x1",  u_alu_ops.u_regfile.regs[1],  32'd12);
