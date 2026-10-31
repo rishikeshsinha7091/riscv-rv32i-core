@@ -7,11 +7,13 @@ reg [3:0] be;
 reg [31:0] addr;
 reg [31:0] wdata;
 wire [31:0] rdata;
+wire [31:0] rdata_init;
 
 integer checks;
 integer errors;
 
 dmem dut (.clk(clk), .be(be), .addr(addr), .wdata(wdata), .rdata(rdata));
+dmem #(.INIT_FILE("tb/dmem_test.hex")) dut_init (.clk(clk), .be(be), .addr(addr), .wdata(wdata), .rdata(rdata_init));
 
 always #5 clk = ~clk;
 
@@ -80,6 +82,44 @@ compare(expected);
 end
 endtask
 
+task compare_init;
+input [31:0] expected;
+begin
+checks = checks + 1;
+if (rdata_init !== expected) begin
+errors = errors + 1;
+$display("FAIL: init addr=%h expected=%h got=%h time=%0d", addr, expected, rdata_init, $time);
+end
+end
+endtask
+
+task read_init;
+input [31:0] a;
+input [31:0] expected;
+begin
+be = 4'b0000;
+addr = a;
+#1;
+compare_init(expected);
+#9;
+end
+endtask
+
+task write_init_bytes;
+input [31:0] a;
+input [31:0] d;
+input [3:0] b;
+input [31:0] expected;
+begin
+be = b;
+addr = a;
+wdata = d;
+#6;
+compare_init(expected);
+#4;
+end
+endtask
+
 initial begin
 clk = 0;
 $dumpfile("sim/dmem.vcd");
@@ -136,6 +176,25 @@ read_check(32'h0000001C, 32'hxxxxxxxx);
 
 // a lane write into a word that was never written leaves the other lanes unknown
 write_bytes(32'h00000030, 32'h000000A5, 4'b0001, 32'hxxxxxxA5);
+
+// the first instance has no file: the word that the second instance loads reads as unknown
+read_check(32'h00000000, 32'hxxxxxxxx);
+
+// second instance: memory preloaded from tb/dmem_test.hex
+read_init(32'h00000000, 32'h11223344);
+read_init(32'h00000004, 32'hAABBCCDD);
+read_init(32'h00000008, 32'hDEADBEEF);
+// word 3 was skipped by @6 in the file, word 7 is beyond the file: both stay unknown
+read_init(32'h0000000C, 32'hxxxxxxxx);
+read_init(32'h00000018, 32'hCAFEF00D);
+read_init(32'h0000001C, 32'hxxxxxxxx);
+// only addr[11:2] is used: 0x1000 and 0x1008 reach words 0 and 2
+read_init(32'h00001000, 32'h11223344);
+read_init(32'h00001008, 32'hDEADBEEF);
+// loaded words can be written, and untouched lanes keep the loaded bytes
+write_init_bytes(32'h00000004, 32'h000000EE, 4'b0001, 32'hAABBCCEE);
+write_init_bytes(32'h00001008, 32'hFF000000, 4'b1000, 32'hFFADBEEF);
+read_init(32'h00000008, 32'hFFADBEEF);
 
 if (errors == 0)
 $display("PASS: dmem, %0d checks, 0 errors", checks);

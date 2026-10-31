@@ -6,7 +6,13 @@ input [31:0] wdata,
 output [31:0] rdata
 );
 
+parameter INIT_FILE = "";
+
 reg [31:0] mem [0:1023];
+
+initial begin
+if (INIT_FILE != "") $readmemh(INIT_FILE, mem);
+end
 
 assign rdata = mem[addr[11:2]];
 
