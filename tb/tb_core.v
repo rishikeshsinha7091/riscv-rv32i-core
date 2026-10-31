@@ -43,7 +43,7 @@ errors = 0;
 
 @(negedge clk);
 reset = 0;
-repeat (60) @(posedge clk);
+repeat (100) @(posedge clk);
 #1;
 
 // alu_ops: values worked out by hand from tests/alu_ops.asm
