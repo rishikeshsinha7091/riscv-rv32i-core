@@ -232,3 +232,67 @@ The PC steps through `00` to `14`, then returns to `08` for each pass of the loo
 - Validity check disabled in the control unit: 2 of 50 failed, in `unsupported`. `xor` wrote 10 into `x14` and `bne` branched and skipped `addi x15`. The same bug failed 8 checks in the control unit test, so the same fault is visible at both levels.
 
 Lesson: a test with equal registers catches a `bne` misdecoded as `beq`. With different registers the misdecoded `bne` falls through, just like the correct "do nothing" behaviour, and the bug would hide.
+
+## Part 5: the rest of RV32I
+
+### 26. Control unit interface first, and a safe `unsupported` program
+
+The old `unsupported` program used `xor`, which was about to become supported. Run on the new control unit it would have left `x14` holding the `xor` result instead of the sentinel 77, so the core test would have failed for the right reason, but a commit should pass. The program was rewritten first, around instructions that stay unsupported (`mul`, `fence`, `ecall`, `ebreak`), with one sentinel written before them and one after, so the second sentinel only gets its value if execution flows through all four to PC + 4.
+
+Then the control interface was widened once, to its final size: 13 outputs, 21 bits (`result_src` grew from 2 to 3 bits, and `jalr`, `br_lt`, `br_inv`, `mem_size` and `load_unsigned` were added, all at their default values). The `check` task in `tb_control` was rewritten once, so later builds only add rows. `result_codes.vh` now has five codes at 3 bits, and a new `mem_codes.vh` has the three size codes.
+
+Two bugs put in on purpose did not fail any test. The `result_src` wire in `core.v` left at 2 bits gave a compiler warning (`Port 9 (result_src) of control expects 3 bits, got 2`), and `RES_TARGET = 2'd4` gave `Numeric constant truncated to 2 bits`. Nothing used values above 2 yet, so the truncation changed nothing. Lesson: some bugs no test can see until a feature uses them, and then the compiler warning is the only alarm. The compile checks must print nothing.
+
+### 27. The ALU-type instructions in the control unit
+
+Thirteen instructions (`sll`, `srl`, `sra`, `sltu`, `xor` and eight immediate forms) needed no new datapath: the ALU already had all ten operations, so only the control unit changed. The hard part is instruction bit 30. It is a function code for `sub` (register-register only), and for `sra` and `srai`. For `addi`, `slti`, `sltiu`, `xori`, `ori` and `andi` it is a bit of the constant and must be ignored. For `slli` the whole `funct7` field must be 0. The validity check was extended to check exactly those bits and no others.
+
+`tb_control` was rebuilt with helper tasks (`check_rtype`, `check_itype`, `check_invalid`) so that each row states only what differs, and grew to 60 checks. Bugs put in on purpose: the `slli` `funct7` check removed (2 of 60 failed), `sra` and `srai` decoded as `srl` (2 failed, only the rows with bit 30 set), and the alternate `funct7` accepted for every `funct3` (6 failed: `sll`, `slt`, `sltu`, `xor`, `or` and `and` with `funct7` = `0100000`).
+
+### 28. The `alu_full` program
+
+The program runs the 13 new instructions on inputs 12, 10, -16 and 3, with one result register each and nothing reading a result, so one wrong decode causes only its own failures. The constants are chosen to catch specific bugs: `xor` against `or` needs 12 and 10, `sra` against `srl` and `slt` against `sltu` need a negative number, and `xori -1`, `ori 1024` and `andi 1279` set instruction bit 30. The core test grew to 69 checks.
+
+Bugs put in on purpose: `sra` and `srai` as `srl` (2 of 69 failed), `sltu` and `sltiu` as `slt` (4 failed: the operands with different sign bits), and `xor` as `or` (2 failed).
+
+RARS rejected the first version of the program with `operand is of incorrect type` on `jal x0, 0`: it wants a label as the jump target. The spin loop is now written `spin: jal x0, spin`, which assembles to the same word, `0x0000006f`.
+
+### 29. `lui`, `auipc` and `jalr`
+
+The result mux grew from three inputs to five: `lui` sends the immediate, and `auipc` sends `pc + imm` from the branch target adder, so the ALU is untouched. For `jalr` the ALU adds `rs1` and the constant, and a new `jalr` control signal selects `{alu_y[31:1], 1'b0}` as the next PC. `tb_control` grew to 66 checks.
+
+The `upper_jalr` program covers `lui` with the sign gotcha (`lui` 2 plus `addi -2048` gives `0x1800`), `auipc` at three addresses, a call and return, and a `jalr` with an odd offset that skips one instruction. Bugs put in on purpose: `jalr` without clearing bit 0 failed only the final PC check (1 of 85), because the instruction memory ignores the two low address bits and still fetched the right word, while the PC register held an odd number. `auipc` returning the immediate instead of `pc + imm` failed 3, and `jalr` storing the target instead of PC + 4 failed 1. Lesson: the final-PC check of every program is what catches the first bug.
+
+### 30. The other branches
+
+The ALU is reused: `bne` subtracts like `beq`, `blt` and `bge` run `slt`, `bltu` and `bgeu` run `sltu`, and the answer is bit 0 of the ALU result. The decision is `taken = (br_lt ? alu_y[0] : zero) ^ br_inv`, where `br_lt` and `br_inv` are `funct3` bits 2 and 0. Deciding by the sign of the subtraction was rejected because it is wrong on overflow (`0x7FFFFFFF - 0xFFFFFFFF` gives `0x80000000`). A new ALU class `CLASS_BRANCH` replaced `CLASS_SUB`. `tb_control` grew to 74 checks.
+
+The `branch_all` program has 16 cases, each leaving 1 (taken) or 0 (not taken), covering equal operands, both orders, different sign bits and the overflow pair. Bugs put in on purpose: the answer never inverted failed 8 of 102 (`bne`, `bge`, `bgeu`), `bltu` and `bgeu` using the signed compare failed 5 (cases with different sign bits), and a validity check that accepted the reserved `funct3` values failed 2 rows in the control test and nothing in the core test, since no program contains a reserved branch.
+
+### 31. Data memory with a byte enable
+
+`dmem` now takes a 4-bit byte enable instead of a write enable, written as four independent lane writes. The change was done in two stages. First only the port changed, and the old 15 whole-word checks still passed at 130 ns, which showed nothing else had changed. The core was given a temporary `{4{mem_write}}` connection. Then 13 lane tests were added (28 checks, 250 ns), using words with different bytes so that a lane mix-up shows.
+
+Bugs put in on purpose: a whole word written whenever any lane was enabled failed 9 of 28 while all 15 old checks passed, and swapped enables for lanes 0 and 1 failed 7 (including a cascade, where later checks compared against the right value while memory held the wrong one). Lesson: the old tests protect the old behaviour, not the new one.
+
+### 32. The store and load alignment blocks
+
+`store_align` makes the byte enable and the write data: `be` is the lane pattern gated by `mem_write`, and the data repeats the byte or half-word on every lane (`{4{rs2[7:0]}}`), so no shifter is needed. `wdata` is not gated, because memory ignores it when `be` is `0000`. Its testbench has 11 checks. Bugs put in on purpose: `sb` taking the wrong byte failed 4, the lane using only the low address bit failed 2 (lanes 2 and 3), and `be` not gated by `mem_write` failed 3.
+
+`load_align` picks the byte or half-word from the memory word and extends it with one gate: the fill bit is the top bit AND NOT `load_unsigned`. Its testbench has 14 checks on the word `0x80FF7F01`, which has two bytes with the top bit set. Bugs put in on purpose: `lbu` ignoring the flag failed 2, two byte lanes swapped failed 4, and the two half-words swapped failed 4. Misaligned addresses are not tested, because this core does not define them (a half-word looks only at address bit 1, a word ignores the low two bits).
+
+### 33. Byte and half-word instructions in the core
+
+The core was wired first, with the two new blocks and the control unit still accepting only `lw` and `sw` (size WORD), so the 102 old core checks had to pass unchanged. Then the control unit learned the new `funct3` values with two validity-check lines, because `mem_size` and `load_unsigned` were already produced from `funct3`. `tb_control` grew to 85 checks, with one row for each of the 37 instructions.
+
+The `byte_ops` program (18 checks) reads bytes and half-words of a known word into registers, changes one byte lane at a time with `sb` and reads the word back with `lw`, then changes the two halves with `sh`, and also checks the memory words directly. Bugs put in on purpose: `load_align` bypassed failed 9, `store_align` bypassed failed 5 (and every load check passed, because the loads read a word written by `sw`), and `lbu` and `lhu` sign-extending failed 3.
+
+### 34. A program that uses every instruction group
+
+The `checksum` program fills four bytes in a loop, calls a function (`jal`, `jalr`) that sums and xors them with a loop, combines the results with `lui` constants and shifts, and reads them back as halves and bytes, with a signed `bge` and a `slt` against `sltu` on the same pair. It runs 71 instructions, more than the old 60-cycle run, so the testbench run grew to 100 cycles (`$finish` moved from 606 ns to 1006 ns). Every program ends in a spin loop, so the longer run changed no old result. The core test is now 141 checks.
+
+Bugs put in on purpose: `xor` run as `or` failed 8 (the 2 `alu_full` checks, and six in the new program as one wrong value flowed through the later steps), and `jalr` storing the target instead of PC + 4 failed only the `upper_jalr` check. The new program passed because its `jalr` writes `x0`. Lesson: a big program shows that the parts work together, but it cannot replace the targeted tests.
+
+### 35. What is left out: `fence`, `ecall` and `ebreak`
+
+The core has 37 of the 40 RV32I instructions. `ecall` and `ebreak` need a trap mechanism: control and status registers, a saved PC and cause, a handler address and a return instruction, plus an environment to answer the request. This project has none of these. In this core they do nothing, which is not what a complete core does. A `fence` orders memory accesses as seen by other agents. With one hart, in-order execution, no caches and no devices there is nothing to order, so doing nothing is allowed for a simple core. In all three cases the control unit gives the all-zero row, and `unsupported` checks that they change nothing.
