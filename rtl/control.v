@@ -42,8 +42,8 @@ reg [1:0] alu_class;
 always @(*) begin
 valid = 1'b0;
 case (opcode)
-OP_LOAD:   valid = (funct3 == 3'b010);
-OP_STORE:  valid = (funct3 == 3'b010);
+OP_LOAD:   valid = (funct3 != 3'b011) && (funct3 != 3'b110) && (funct3 != 3'b111);
+OP_STORE:  valid = (funct3 == 3'b000) || (funct3 == 3'b001) || (funct3 == 3'b010);
 OP_BRANCH: valid = (funct3 != 3'b010) && (funct3 != 3'b011);
 OP_JAL:    valid = 1'b1;
 OP_LUI:    valid = 1'b1;

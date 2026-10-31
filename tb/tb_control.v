@@ -130,6 +130,12 @@ check("blt",  OP_BRANCH, 3'b100, 7'b0000000, 1'b0, SEL_B, 1'b0, ALU_SLT,  1'b0, 
 check("bge",  OP_BRANCH, 3'b101, 7'b0000000, 1'b0, SEL_B, 1'b0, ALU_SLT,  1'b0, RES_ALU, 1'b1, 1'b0, 1'b0, 1'b1, 1'b1, MEM_BYTE, 1'b0);
 check("bltu", OP_BRANCH, 3'b110, 7'b0000000, 1'b0, SEL_B, 1'b0, ALU_SLTU, 1'b0, RES_ALU, 1'b1, 1'b0, 1'b0, 1'b1, 1'b0, MEM_BYTE, 1'b0);
 check("bgeu", OP_BRANCH, 3'b111, 7'b0000000, 1'b0, SEL_B, 1'b0, ALU_SLTU, 1'b0, RES_ALU, 1'b1, 1'b0, 1'b0, 1'b1, 1'b1, MEM_BYTE, 1'b0);
+check("lb",  OP_LOAD,  3'b000, 7'b0000000, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, RES_MEM, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
+check("lh",  OP_LOAD,  3'b001, 7'b0000000, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, RES_MEM, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_HALF, 1'b0);
+check("lbu", OP_LOAD,  3'b100, 7'b0000000, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, RES_MEM, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b1);
+check("lhu", OP_LOAD,  3'b101, 7'b0000000, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, RES_MEM, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_HALF, 1'b1);
+check("sb",  OP_STORE, 3'b000, 7'b0000000, 1'b0, SEL_S, 1'b1, ALU_ADD, 1'b1, RES_ALU, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
+check("sh",  OP_STORE, 3'b001, 7'b0000000, 1'b0, SEL_S, 1'b1, ALU_ADD, 1'b1, RES_ALU, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_HALF, 1'b0);
 
 //          name    funct3   funct7       alu_op
 check_rtype("add",  3'b000, 7'b0000000, ALU_ADD);
@@ -173,6 +179,8 @@ check("auipc f3=101", OP_AUIPC, 3'b101, 7'h2A, 1'b1, SEL_U, 1'b0, ALU_ADD, 1'b0,
 check("jalr f7=7F",   OP_JALR,  3'b000, 7'h7F, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, RES_PC4,    1'b0, 1'b0, 1'b1, 1'b0, 1'b0, MEM_BYTE, 1'b0);
 check("bne f7=7F",  OP_BRANCH, 3'b001, 7'h7F, 1'b0, SEL_B, 1'b0, ALU_SUB,  1'b0, RES_ALU, 1'b1, 1'b0, 1'b0, 1'b0, 1'b1, MEM_BYTE, 1'b0);
 check("bgeu f7=7F", OP_BRANCH, 3'b111, 7'h7F, 1'b0, SEL_B, 1'b0, ALU_SLTU, 1'b0, RES_ALU, 1'b1, 1'b0, 1'b0, 1'b1, 1'b1, MEM_BYTE, 1'b0);
+check("lbu f7=7F", OP_LOAD,  3'b100, 7'h7F, 1'b1, SEL_I, 1'b1, ALU_ADD, 1'b0, RES_MEM, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b1);
+check("sb f7=7F",  OP_STORE, 3'b000, 7'h7F, 1'b0, SEL_S, 1'b1, ALU_ADD, 1'b1, RES_ALU, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, MEM_BYTE, 1'b0);
 
 // Group D: shift-immediates, where funct7 is a real function code: wrong values must give all zeros
 check_invalid("slli f7=01", OP_ITYPE, 3'b001, 7'b0000001);
@@ -202,10 +210,11 @@ check_invalid("jalr f3=001", OP_JALR, 3'b001, 7'b0000000);
 check_invalid("jalr f3=111", OP_JALR, 3'b111, 7'b0000000);
 check_invalid("branch f3=010", OP_BRANCH, 3'b010, 7'b0000000);
 check_invalid("branch f3=011", OP_BRANCH, 3'b011, 7'b0000000);
-
-// Group G: not supported yet. A later build moves each row to Group A
-check_invalid("lb",    OP_LOAD,   3'b000, 7'b0000000);
-check_invalid("sb",    OP_STORE,  3'b000, 7'b0000000);
+check_invalid("load f3=011",  OP_LOAD,  3'b011, 7'b0000000);
+check_invalid("load f3=110",  OP_LOAD,  3'b110, 7'b0000000);
+check_invalid("load f3=111",  OP_LOAD,  3'b111, 7'b0000000);
+check_invalid("store f3=011", OP_STORE, 3'b011, 7'b0000000);
+check_invalid("store f3=100", OP_STORE, 3'b100, 7'b0000000);
 
 // Group H: an unknown instruction (what imem gives after the program) must give definite zeros
 check_invalid("all x", 7'bxxxxxxx, 3'bxxx, 7'bxxxxxxx);

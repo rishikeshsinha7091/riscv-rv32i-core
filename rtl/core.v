@@ -23,6 +23,9 @@ wire [31:0] alu_b;
 wire [31:0] alu_y;
 wire zero;
 wire [31:0] mem_rdata;
+wire [31:0] load_value;
+wire [31:0] store_data;
+wire [3:0] be;
 reg  [31:0] result;
 
 wire reg_write;
@@ -57,12 +60,14 @@ assign alu_b = alu_src ? imm : rdata2;
 
 alu u_alu (.a(rdata1), .b(alu_b), .alu_op(alu_op), .y(alu_y), .zero(zero));
 
-dmem u_dmem (.clk(clk), .be({4{mem_write}}), .addr(alu_y), .wdata(rdata2), .rdata(mem_rdata));
+store_align u_store_align (.mem_write(mem_write), .mem_size(mem_size), .addr_low(alu_y[1:0]), .rs2(rdata2), .be(be), .wdata(store_data));
+dmem u_dmem (.clk(clk), .be(be), .addr(alu_y), .wdata(store_data), .rdata(mem_rdata));
+load_align u_load_align (.word(mem_rdata), .addr_low(alu_y[1:0]), .mem_size(mem_size), .load_unsigned(load_unsigned), .value(load_value));
 
 always @(*) begin
 case (result_src)
 RES_ALU: result = alu_y;
-RES_MEM: result = mem_rdata;
+RES_MEM: result = load_value;
 RES_PC4: result = pc_plus4;
 RES_IMM: result = imm;
 RES_TARGET: result = pc_target;
