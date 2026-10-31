@@ -18,6 +18,7 @@ core #(.PROGRAM("tests/upper_jalr.hex")) u_upper_jalr (.clk(clk), .reset(reset))
 core #(.PROGRAM("tests/branch_all.hex")) u_branch_all (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/byte_ops.hex")) u_byte_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/checksum.hex")) u_checksum (.clk(clk), .reset(reset));
+core #(.PROGRAM("sw/first.hex"), .DATA("sw/first.data.hex")) u_c_first (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -209,6 +210,14 @@ check_value("checksum mem128", u_checksum.u_dmem.mem[128], 32'hCA37A411);
 check_value("checksum mem129", u_checksum.u_dmem.mem[129], 32'hxxxxxxxx);
 check_value("checksum mem130", u_checksum.u_dmem.mem[130], 32'hCB48F045);
 check_value("checksum pc",  u_checksum.pc, 32'd116);
+
+// c_first: compiled from sw/first.c. 0 + 5 + 7 = 12. Layout from sw/link.ld: count at 0x1000 is dmem word 0, total at 0x1004 is word 1
+check_value("c_first x1",   u_c_first.u_regfile.regs[1],  32'h0000002C);
+check_value("c_first x2",   u_c_first.u_regfile.regs[2],  32'h00002000);
+check_value("c_first x10",  u_c_first.u_regfile.regs[10], 32'd12);
+check_value("c_first mem0", u_c_first.u_dmem.mem[0],      32'd5);
+check_value("c_first mem1", u_c_first.u_dmem.mem[1],      32'd12);
+check_value("c_first pc",   u_c_first.pc,                 32'd44);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
