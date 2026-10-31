@@ -1,5 +1,6 @@
 module core #(
-parameter PROGRAM = "tests/program.hex"
+parameter PROGRAM = "tests/program.hex",
+parameter DATA = ""
 ) (
 input clk,
 input reset
@@ -61,7 +62,7 @@ assign alu_b = alu_src ? imm : rdata2;
 alu u_alu (.a(rdata1), .b(alu_b), .alu_op(alu_op), .y(alu_y), .zero(zero));
 
 store_align u_store_align (.mem_write(mem_write), .mem_size(mem_size), .addr_low(alu_y[1:0]), .rs2(rdata2), .be(be), .wdata(store_data));
-dmem u_dmem (.clk(clk), .be(be), .addr(alu_y), .wdata(store_data), .rdata(mem_rdata));
+dmem #(.INIT_FILE(DATA)) u_dmem (.clk(clk), .be(be), .addr(alu_y), .wdata(store_data), .rdata(mem_rdata));
 load_align u_load_align (.word(mem_rdata), .addr_low(alu_y[1:0]), .mem_size(mem_size), .load_unsigned(load_unsigned), .value(load_value));
 
 always @(*) begin
