@@ -16,6 +16,7 @@ core #(.PROGRAM("tests/unsupported.hex")) u_unsupported (.clk(clk), .reset(reset
 core #(.PROGRAM("tests/alu_full.hex")) u_alu_full (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/upper_jalr.hex")) u_upper_jalr (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/branch_all.hex")) u_branch_all (.clk(clk), .reset(reset));
+core #(.PROGRAM("tests/byte_ops.hex")) u_byte_ops (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -164,6 +165,26 @@ check_value("branch_all x21", u_branch_all.u_regfile.regs[21], 32'd1);
 check_value("branch_all x22", u_branch_all.u_regfile.regs[22], 32'd0);
 check_value("branch_all x23", u_branch_all.u_regfile.regs[23], 32'd1);
 check_value("branch_all pc",  u_branch_all.pc, 32'd220);
+
+// byte_ops: loads in registers, stores read back through lw and directly in memory. Values worked out by hand from tests/byte_ops.asm
+check_value("byte_ops x3",  u_byte_ops.u_regfile.regs[3],  32'h00000001);
+check_value("byte_ops x4",  u_byte_ops.u_regfile.regs[4],  32'h0000007F);
+check_value("byte_ops x5",  u_byte_ops.u_regfile.regs[5],  32'hFFFFFFFF);
+check_value("byte_ops x6",  u_byte_ops.u_regfile.regs[6],  32'hFFFFFF80);
+check_value("byte_ops x7",  u_byte_ops.u_regfile.regs[7],  32'h000000FF);
+check_value("byte_ops x8",  u_byte_ops.u_regfile.regs[8],  32'h00000080);
+check_value("byte_ops x9",  u_byte_ops.u_regfile.regs[9],  32'h00007F01);
+check_value("byte_ops x10", u_byte_ops.u_regfile.regs[10], 32'hFFFF80FF);
+check_value("byte_ops x11", u_byte_ops.u_regfile.regs[11], 32'h000080FF);
+check_value("byte_ops x12", u_byte_ops.u_regfile.regs[12], 32'h80FF7F01);
+check_value("byte_ops x18", u_byte_ops.u_regfile.regs[18], 32'h1122AA44);
+check_value("byte_ops x19", u_byte_ops.u_regfile.regs[19], 32'hDDCCAABB);
+check_value("byte_ops x21", u_byte_ops.u_regfile.regs[21], 32'hDDCC0123);
+check_value("byte_ops x23", u_byte_ops.u_regfile.regs[23], 32'h04560123);
+check_value("byte_ops mem64", u_byte_ops.u_dmem.mem[64], 32'h80FF7F01);
+check_value("byte_ops mem65", u_byte_ops.u_dmem.mem[65], 32'h04560123);
+check_value("byte_ops mem66", u_byte_ops.u_dmem.mem[66], 32'hxxxxxxxx);
+check_value("byte_ops pc",  u_byte_ops.pc, 32'd132);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
