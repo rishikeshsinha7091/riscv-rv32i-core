@@ -3,3 +3,9 @@
 
 # Waveform dumps
 *.vcd
+
+# Compiler and linker output
+*.o
+*.elf
+*.bin
+*.map
