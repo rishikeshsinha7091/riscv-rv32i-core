@@ -20,17 +20,19 @@ core #(.PROGRAM("tests/byte_ops.hex")) u_byte_ops (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/checksum.hex")) u_checksum (.clk(clk), .reset(reset));
 core #(.PROGRAM("sw/first.hex"), .DATA("sw/first.data.hex")) u_c_first (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/xpc.hex")) u_xpc (.clk(clk), .reset(reset));
+core #(.PROGRAM("sw/fib.hex"), .DATA("sw/fib.data.hex")) u_fib (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
 // "done" detection: a core is done when its PC has a known value and has not changed for STABLE_CYCLES clock edges in a row.
 // xpc (index 12) is watched too, but the wait below does not depend on it: its PC is unknown forever, so it must never be done.
-localparam NPROG = 13;
+localparam NPROG = 14;
 localparam STABLE_CYCLES = 4;
 localparam MAX_CYCLES = 20000;
-localparam [NPROG-1:0] WAIT_MASK = 13'h0FFF;
+localparam XPC = 12;
+localparam [NPROG-1:0] WAIT_MASK = ~(1 << XPC);
 
-wire [32*NPROG-1:0] pcs = {u_xpc.pc, u_c_first.pc, u_checksum.pc, u_byte_ops.pc, u_branch_all.pc, u_upper_jalr.pc, u_alu_full.pc, u_unsupported.pc, u_loop_sum.pc, u_jal_ops.pc, u_branch_ops.pc, u_mem_ops.pc, u_alu_ops.pc};
+wire [32*NPROG-1:0] pcs = {u_fib.pc, u_xpc.pc, u_c_first.pc, u_checksum.pc, u_byte_ops.pc, u_branch_all.pc, u_upper_jalr.pc, u_alu_full.pc, u_unsupported.pc, u_loop_sum.pc, u_jal_ops.pc, u_branch_ops.pc, u_mem_ops.pc, u_alu_ops.pc};
 
 reg [31:0] prev_pc [0:NPROG-1];
 integer stable [0:NPROG-1];
@@ -101,6 +103,7 @@ check_value("upper_jalr done",  done[7],  1);
 check_value("branch_all done",  done[8],  1);
 check_value("byte_ops done",    done[9],  1);
 check_value("checksum done",    done[10], 1);
+check_value("fib done",         done[13], 1);
 check_value("c_first done",     done[11], 1);
 
 // xpc: the PC is unknown for ever, so the core must never be called done
@@ -277,6 +280,25 @@ check_value("c_first x10",  u_c_first.u_regfile.regs[10], 32'd12);
 check_value("c_first mem0", u_c_first.u_dmem.mem[0],      32'd5);
 check_value("c_first mem1", u_c_first.u_dmem.mem[1],      32'd12);
 check_value("c_first pc",   u_c_first.pc,                 32'd44);
+
+// fib: compiled from sw/fib.c. First 10 Fibonacci numbers: 1 1 2 3 5 8 13 21 34 55. count = 10 is dmem word 0, fibs[0..9] are words 1 to 10
+check_value("fib x1",    u_fib.u_regfile.regs[1],  32'h0000002C);
+check_value("fib x2",    u_fib.u_regfile.regs[2],  32'h00002000);
+check_value("fib x10",   u_fib.u_regfile.regs[10], 32'd55);
+check_value("fib mem0",  u_fib.u_dmem.mem[0],  32'd10);
+check_value("fib mem1",  u_fib.u_dmem.mem[1],  32'd1);
+check_value("fib mem2",  u_fib.u_dmem.mem[2],  32'd1);
+check_value("fib mem3",  u_fib.u_dmem.mem[3],  32'd2);
+check_value("fib mem4",  u_fib.u_dmem.mem[4],  32'd3);
+check_value("fib mem5",  u_fib.u_dmem.mem[5],  32'd5);
+check_value("fib mem6",  u_fib.u_dmem.mem[6],  32'd8);
+check_value("fib mem7",  u_fib.u_dmem.mem[7],  32'd13);
+check_value("fib mem8",  u_fib.u_dmem.mem[8],  32'd21);
+check_value("fib mem9",  u_fib.u_dmem.mem[9],  32'd34);
+check_value("fib mem10", u_fib.u_dmem.mem[10], 32'd55);
+// nothing may be written just past the array
+check_value("fib mem11", u_fib.u_dmem.mem[11], 32'hxxxxxxxx);
+check_value("fib pc",    u_fib.pc, 32'd44);
 
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
