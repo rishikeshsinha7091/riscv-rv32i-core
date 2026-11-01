@@ -29,3 +29,4 @@ if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: extracting data"; exit 1 }
 if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: converting data"; exit 1 }
 }
 Write-Host "built ${Name}: $((Get-Content $hex).Count) code words"
+exit 0
