@@ -1,11 +1,11 @@
 00708293 // addi x5, x1, 7
 00310333 // add x6, x2, x3
 00c22383 // lw x7, 12(x4)
-0084a823 // sw x8, 16(x9)
+00942823 // sw x9, 16(x8)
 00b50463 // beq x10, x11, 8
-0140066f // jal x12, 20
 123456b7 // lui x13, 0x12345
 00010717 // auipc x14, 0x10
 fff00793 // addi x15, x0, -1
-01186663 // bltu x16, x17, 12
+0108e663 // bltu x17, x16, 12
+0140066f // jal x12, 20
 00000000 // all-zero word: the control unit turns it into a bubble

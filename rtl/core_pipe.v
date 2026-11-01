@@ -6,13 +6,15 @@ input clk,
 input reset
 );
 
+`include "result_codes.vh"
+
 // ---- Fetch stage ----
 wire [31:0] pc;
 wire [31:0] pc_plus4;
 wire [31:0] next_pc;
 wire [31:0] if_inst;
 
-assign next_pc = pc_plus4;
+// next_pc is assigned in the Execute stage (branch and jump mux)
 
 pc_reg u_pc (.clk(clk), .reset(reset), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
 
@@ -82,5 +84,75 @@ pipe_reg #(.WIDTH(183)) u_id_ex (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b
 .q(id_ex_q));
 
 assign {ex_pc, ex_pc_plus4, ex_rdata1, ex_rdata2, ex_imm, ex_rd, ex_reg_write, ex_result_src, ex_mem_write, ex_mem_size, ex_load_unsigned, ex_branch, ex_jump, ex_jalr, ex_br_lt, ex_br_inv, ex_alu_src, ex_alu_op} = id_ex_q;
+
+// ---- Execute stage ----
+wire [31:0] ex_alu_b;
+wire [31:0] ex_alu_y;
+wire ex_zero;
+wire [31:0] ex_pc_target;
+wire ex_taken;
+wire ex_pc_src;
+wire [31:0] ex_jalr_target;
+reg [31:0] ex_result;
+
+assign ex_alu_b = ex_alu_src ? ex_imm : ex_rdata2;
+
+alu u_alu (.a(ex_rdata1), .b(ex_alu_b), .alu_op(ex_alu_op), .y(ex_alu_y), .zero(ex_zero));
+
+assign ex_pc_target = ex_pc + ex_imm;
+assign ex_taken = (ex_br_lt ? ex_alu_y[0] : ex_zero) ^ ex_br_inv;
+assign ex_pc_src = (ex_branch & ex_taken) | ex_jump;
+assign ex_jalr_target = {ex_alu_y[31:1], 1'b0};
+assign next_pc = ex_jalr ? ex_jalr_target : (ex_pc_src ? ex_pc_target : pc_plus4);
+
+always @(*) begin
+case (ex_result_src)
+RES_PC4: ex_result = ex_pc_plus4;
+RES_IMM: ex_result = ex_imm;
+RES_TARGET: ex_result = ex_pc_target;
+default: ex_result = ex_alu_y;
+endcase
+end
+
+// ---- EX/MEM register: result, store data (rs2), rd, reg_write, result_src, mem_write, mem_size, load_unsigned ----
+wire [76:0] ex_mem_q;
+wire [31:0] mm_result;
+wire [31:0] mm_store_src;
+wire [4:0] mm_rd;
+wire mm_reg_write;
+wire [2:0] mm_result_src;
+wire mm_mem_write;
+wire [1:0] mm_mem_size;
+wire mm_load_unsigned;
+
+pipe_reg #(.WIDTH(77)) u_ex_mem (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0),
+.d({ex_result, ex_rdata2, ex_rd, ex_reg_write, ex_result_src, ex_mem_write, ex_mem_size, ex_load_unsigned}),
+.q(ex_mem_q));
+
+assign {mm_result, mm_store_src, mm_rd, mm_reg_write, mm_result_src, mm_mem_write, mm_mem_size, mm_load_unsigned} = ex_mem_q;
+
+// ---- Memory stage ----
+wire [3:0] mm_be;
+wire [31:0] mm_wdata;
+wire [31:0] mm_rdata;
+wire [31:0] mm_load_value;
+
+store_align u_store_align (.mem_write(mm_mem_write), .mem_size(mm_mem_size), .addr_low(mm_result[1:0]), .rs2(mm_store_src), .be(mm_be), .wdata(mm_wdata));
+dmem #(.INIT_FILE(DATA)) u_dmem (.clk(clk), .be(mm_be), .addr(mm_result), .wdata(mm_wdata), .rdata(mm_rdata));
+load_align u_load_align (.word(mm_rdata), .addr_low(mm_result[1:0]), .mem_size(mm_mem_size), .load_unsigned(mm_load_unsigned), .value(mm_load_value));
+
+// ---- MEM/WB register: result, load value, rd, reg_write, result_src ----
+wire [72:0] mem_wb_q;
+wire [31:0] wb_result;
+wire [31:0] wb_load_value;
+wire [4:0] wb_rd;
+wire wb_reg_write;
+wire [2:0] wb_result_src;
+
+pipe_reg #(.WIDTH(73)) u_mem_wb (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0),
+.d({mm_result, mm_load_value, mm_rd, mm_reg_write, mm_result_src}),
+.q(mem_wb_q));
+
+assign {wb_result, wb_load_value, wb_rd, wb_reg_write, wb_result_src} = mem_wb_q;
 
 endmodule

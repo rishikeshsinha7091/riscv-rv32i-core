@@ -1,0 +1,3 @@
+// data memory for the stage test: word 260 (address 0x04040410) holds the value the lw loads
+@104
+a1b2c3d4
