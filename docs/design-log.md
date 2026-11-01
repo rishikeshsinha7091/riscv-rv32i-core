@@ -296,3 +296,59 @@ Bugs put in on purpose: `xor` run as `or` failed 8 (the 2 `alu_full` checks, and
 ### 35. What is left out: `fence`, `ecall` and `ebreak`
 
 The core has 37 of the 40 RV32I instructions. `ecall` and `ebreak` need a trap mechanism: control and status registers, a saved PC and cause, a handler address and a return instruction, plus an environment to answer the request. This project has none of these. In this core they do nothing, which is not what a complete core does. A `fence` orders memory accesses as seen by other agents. With one hart, in-order execution, no caches and no devices there is nothing to order, so doing nothing is allowed for a simple core. In all three cases the control unit gives the all-zero row, and `unsupported` checks that they change nothing.
+
+## Part 6: compiled programs and one command for all tests
+
+### 36. From C source to the core: toolchain, flags and memory plan
+
+Installed the xPack GNU RISC-V Embedded GCC 15.2.0-1 from its zip and pinned that version, because compiler output can change between versions. The default target of this toolchain is `rv32imac/ilp32`, which allows multiply and divide instructions and 16-bit compressed instructions, so every compile needs `-march=rv32i -mabi=ilp32`. Two checks on the installed toolchain: `-print-multi-lib` lists an `rv32i/ilp32` library variant, and `-print-libgcc-file-name` with the two flags picks the library from that variant (without the flags it picks the default one). Compiling a small file without the flags showed a real `mul` and 16-bit instructions in the disassembly, which our core could not run.
+
+The C source goes through compile, assemble, link and convert. The conversion uses `objcopy -O binary` for the raw bytes and a short PowerShell script (`sw/bin2hex.ps1`) that joins four bytes into one little-endian word per line. I chose this over the Verilog output of `objcopy`, because that output has byte-address lines and endianness handling that are the subject of binutils bug reports. Raw bytes leave nothing to interpret. The check: the first line of the hex file equals the first instruction word printed by the disassembler.
+
+The linker script places the instruction memory at address 0 and tells the linker that the data memory starts at `0x1000`. Both memories start at 0 in the hardware, but a linker assumes one address space. The data memory looks only at address bits 11 to 2, so `0x1000` reaches its first word. The stack pointer starts at `0x2000`, the end of the data memory. Constants and variables with starting values share one output section, because the data memory has no read-only protection. `-mno-relax` keeps the linker from using the `gp` register shortcut, so the start-up code does not have to set `gp`.
+
+### 37. Initialised data on a Harvard core
+
+The core has two memories, and no instruction can read the instruction memory as data. A compiled program needs its constants and its variables with starting values in the data memory, so a start-up copy loop from instruction memory to data memory cannot be written. The options were: write programs that need no initialised data (the compiler decides that, not the programmer), load the data memory from the testbench by hierarchical name (it breaks when internal names change), give the data memory a hex file like the instruction memory has, or add a read path to the instruction memory (new hardware). I chose the third: `dmem` got a parameter `INIT_FILE`, and `core` got a parameter `DATA` that passes it through. The default is an empty string, meaning no file, so every old test still sees unwritten words as `x`.
+
+The data memory is therefore preloaded at the start of a simulation. A real system would copy the values from flash at boot. This is a simulation shortcut and is stated as such in the README.
+
+### 38. A test-data mistake: two memories on one bus
+
+`tb_dmem` got a second instance loaded from `tb/dmem_test.hex`, sharing the inputs of the first one. The first run of the new checks, before the loading line existed, gave 10 errors instead of the 9 worked out by hand. The extra one was a check at address `0x14` that expected `x` and got `cafef00d`. Reason: the old tests write words 4 and 5 (addresses `0x10` and `0x14`), and the shared bus wrote them into the second memory as well, where my data file also had words. The same collision would have failed two checks after the fix, so the predicted PASS was wrong too.
+
+Fix: the test data moved to words that the old tests never write (0 to 3, 6 and 7), and one check was added on the first instance (word 0 must read `x`). Lesson: instances that share inputs share writes, so before choosing test data, look at what the old tests write. The hand-traced count was what exposed the error. A break on purpose confirmed the new check: with a real file as the default of `INIT_FILE`, exactly 1 of 40 checks failed. The 28 old checks could not see it, because the data file uses words that they never read.
+
+### 39. The first compiled program and the build script
+
+`first.c` has a variable with a starting value (5) and one without (it must be zeroed), and returns 0 + 5 + 7 = 12. The start-up code is 12 instructions: set `sp`, zero the uninitialised variables with a loop, call `main` and spin. From the disassembly, 20 instructions run before the spin loop starts. The core test checks the result, two data-memory words, `sp`, `ra` and the final PC, but not the registers the compiler happened to pick, because another compiler version could pick others. Bugs put in on purpose: `core` forgetting to pass the data file failed 3 of 147 checks (every check that depends on the preloaded value), and the start-up code not zeroing the uninitialised variable failed 2.
+
+`sw/build.ps1` compiles, links and converts one program. It deletes every output first and checks the exit code after every tool, so a failed build leaves no old hex file behind. A syntax error in the C file left no `first.hex` at all, and a code region made too small gave a linker error that said the region overflowed by the size of `main`. A bug of mine in the first version of the script: `"built $Name: ..."` is a parse error in PowerShell, because `$Name:` is read as a variable with a drive prefix. The fix is `${Name}`.
+
+### 40. Done detection instead of a fixed 100 cycles
+
+`tb_core` ran every program for exactly 100 cycles. The compiled programs need more, so the testbench now watches the PC of every core and calls a core done when the PC has no `x` bits and has not changed for 4 clock edges. A timeout of 20000 cycles stops a program that never finishes, and each program has its own `done` check, so a program that timed out is named. Without the check for `x`, a lost core would look done, because `x === x` is true in Verilog. To test that guard, a new program `xpc` jumps through a register that was never written, so its PC becomes `x` for ever, and the testbench checks that it is not done.
+
+Bugs put in on purpose: a stable-count that can never be reached made all 12 `done` checks fail at the timeout (12 of 161 checks, simulation ending at 200011 ns), and removing the `x` guard failed exactly 1 check (`xpc not done`). The slowest program needed 76 cycles at this point. The finish time of the simulation is 10 x cycles + 11 ns, which was confirmed on every run.
+
+The harmless `$readmemh` warning (the hex files are shorter than the memory) is hidden by one narrow filter in `sim/run.cmd`, which drops only the lines containing that message. Everything else, including every `FAIL` line, still shows.
+
+### 41. Real C programs: answers from outside the core
+
+Three programs with answers that come from arithmetic, not from the core. `fib` stores the first 10 Fibonacci numbers (1 to 55) in an array and returns 55. It has one check for something that must not happen: the word just past the array must still be `x`. An off-by-one in the loop (`<=` instead of `<`) failed exactly that one check (word 11 held 89), while all ten correct numbers stayed correct. `sort` is a bubble sort of 5, -2, 9, 1, -7, 3, 8, 4, and the negative numbers are there on purpose. It also counts its swaps, and the count must be 13, because bubble sort does one swap per out-of-order pair and counting the pairs by hand gives 13. `bits` counts the one-bits of `0x80F0A55A` (13) and applies sra, srl, sll, and, or and xor to fixed values.
+
+Two bugs put into the ALU. Making signed less-than unsigned made 10 lines for `sort` fail (the array ended as 1 3 4 5 8 9 -7 -2 with 17 swaps), none for `fib`, `first` or `bits`, because those programs never compare a negative number; the whole core test showed 19 errors, the rest from older tests. Making the arithmetic shift logical failed exactly 1 line for `bits` (`1ffffff8` instead of `fffffff8`). The unit tests say where the bug is, and the programs show that real code runs into it. After these programs the slowest one needed 264 cycles (2651 ns).
+
+### 42. One command for all tests
+
+`sim/run_all.ps1` finds every `tb/tb_<name>.v`, runs it, and prints one line per test and a summary. It ends with exit code 1 if anything failed. The rule is closed: a test passes only if `run.cmd` ended with exit code 0, exactly one line starts with `PASS: ` and no line starts with `FAIL: `. The old `.vvp` file is deleted before each test, so a stale file cannot be run.
+
+Writing it showed that the PASS lines come in four formats: seven testbenches print `PASS: NAME, N checks, 0 errors`, three print `PASS: tb_NAME - all N checks passed`, `mux2` prints `all 8 cases correct`, and `dff_sync_reset` prints no number. The project notes had claimed one format for all. The runner reads a number followed by `checks` or `cases` when it is there, rejects a test that reports 0 checks, and accepts the one without a number. The old testbenches were left unchanged, since they pass and were verified.
+
+Breaks on purpose: addition changed to subtraction in the ALU failed exactly `alu` and `core` (10 of 12 passed, exit code 1). A missing semicolon in `dmem.v` failed exactly `core` and `dmem`, each with exit code 1, no PASS line and no FAIL line, and their old `.vvp` files were gone afterwards. A rule that looked only for FAIL lines would have called both passed.
+
+### 43. Checking the C programs: fresh builds and the instruction gate
+
+The runner also rebuilds each C program, hashes the committed hex files before and after, and fails when they differ, which means a hex file did not match its source. After a failure the freshly built file stays, so the runner repairs it. It then reads the disassembly of the whole linked program and checks that every machine code has 8 digits and every instruction is one of the 37 (or a short name that `objdump` prints for one of them, such as `mv` or `ret`). `ecall`, `ebreak` and `fence` are not on the list. If no instruction line is found, the check fails, so a broken pattern cannot give a silent pass. Without the toolchain, the C checks print a visible `SKIP` line, and `-Strict` turns that into a failure.
+
+Breaks on purpose: one changed word in `fib.hex` failed only `c:fib` (15 of 16), all testbenches stayed green because the rebuild had repaired the file, and `git status` was clean afterwards. An `ebreak` hidden in a branch that never runs failed `c:first` with two problems (the hex file out of date, and the unsupported instruction). With the toolchain hidden from the PATH, the run gave 12 of 12 with a SKIP line, and 12 of 13 with `-Strict`. One known limit: the hash comparison assumes that the committed hex files and the freshly built ones use the same line endings, which holds on this Windows setup.
