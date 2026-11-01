@@ -21,18 +21,20 @@ core #(.PROGRAM("tests/checksum.hex")) u_checksum (.clk(clk), .reset(reset));
 core #(.PROGRAM("sw/first.hex"), .DATA("sw/first.data.hex")) u_c_first (.clk(clk), .reset(reset));
 core #(.PROGRAM("tests/xpc.hex")) u_xpc (.clk(clk), .reset(reset));
 core #(.PROGRAM("sw/fib.hex"), .DATA("sw/fib.data.hex")) u_fib (.clk(clk), .reset(reset));
+core #(.PROGRAM("sw/sort.hex"), .DATA("sw/sort.data.hex")) u_sort (.clk(clk), .reset(reset));
+core #(.PROGRAM("sw/bits.hex"), .DATA("sw/bits.data.hex")) u_bits (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
 // "done" detection: a core is done when its PC has a known value and has not changed for STABLE_CYCLES clock edges in a row.
 // xpc (index 12) is watched too, but the wait below does not depend on it: its PC is unknown forever, so it must never be done.
-localparam NPROG = 14;
+localparam NPROG = 16;
 localparam STABLE_CYCLES = 4;
 localparam MAX_CYCLES = 20000;
 localparam XPC = 12;
 localparam [NPROG-1:0] WAIT_MASK = ~(1 << XPC);
 
-wire [32*NPROG-1:0] pcs = {u_fib.pc, u_xpc.pc, u_c_first.pc, u_checksum.pc, u_byte_ops.pc, u_branch_all.pc, u_upper_jalr.pc, u_alu_full.pc, u_unsupported.pc, u_loop_sum.pc, u_jal_ops.pc, u_branch_ops.pc, u_mem_ops.pc, u_alu_ops.pc};
+wire [32*NPROG-1:0] pcs = {u_bits.pc, u_sort.pc, u_fib.pc, u_xpc.pc, u_c_first.pc, u_checksum.pc, u_byte_ops.pc, u_branch_all.pc, u_upper_jalr.pc, u_alu_full.pc, u_unsupported.pc, u_loop_sum.pc, u_jal_ops.pc, u_branch_ops.pc, u_mem_ops.pc, u_alu_ops.pc};
 
 reg [31:0] prev_pc [0:NPROG-1];
 integer stable [0:NPROG-1];
@@ -103,6 +105,8 @@ check_value("upper_jalr done",  done[7],  1);
 check_value("branch_all done",  done[8],  1);
 check_value("byte_ops done",    done[9],  1);
 check_value("checksum done",    done[10], 1);
+check_value("sort done",        done[14], 1);
+check_value("bits done",        done[15], 1);
 check_value("fib done",         done[13], 1);
 check_value("c_first done",     done[11], 1);
 
@@ -300,6 +304,40 @@ check_value("fib mem10", u_fib.u_dmem.mem[10], 32'd55);
 check_value("fib mem11", u_fib.u_dmem.mem[11], 32'hxxxxxxxx);
 check_value("fib pc",    u_fib.pc, 32'd44);
 
+// sort: compiled from sw/sort.c. Bubble sort of 5 -2 9 1 -7 3 8 4 gives -7 -2 1 3 4 5 8 9 (words 0 to 7). swaps = 13 out-of-order pairs, word 8
+check_value("sort x1",   u_sort.u_regfile.regs[1],  32'h0000002C);
+check_value("sort x2",   u_sort.u_regfile.regs[2],  32'h00002000);
+check_value("sort x10",  u_sort.u_regfile.regs[10], 32'hFFFFFFF9);
+check_value("sort mem0", u_sort.u_dmem.mem[0], 32'hFFFFFFF9);
+check_value("sort mem1", u_sort.u_dmem.mem[1], 32'hFFFFFFFE);
+check_value("sort mem2", u_sort.u_dmem.mem[2], 32'd1);
+check_value("sort mem3", u_sort.u_dmem.mem[3], 32'd3);
+check_value("sort mem4", u_sort.u_dmem.mem[4], 32'd4);
+check_value("sort mem5", u_sort.u_dmem.mem[5], 32'd5);
+check_value("sort mem6", u_sort.u_dmem.mem[6], 32'd8);
+check_value("sort mem7", u_sort.u_dmem.mem[7], 32'd9);
+check_value("sort mem8", u_sort.u_dmem.mem[8], 32'd13);
+// nothing may be written just past the data
+check_value("sort mem9", u_sort.u_dmem.mem[9], 32'hxxxxxxxx);
+check_value("sort pc",   u_sort.pc, 32'd44);
+
+// bits: compiled from sw/bits.c. in[0], in[1] are words 0 and 1, out[0..6] are words 2 to 8 (values worked out by hand)
+check_value("bits x1",   u_bits.u_regfile.regs[1],  32'h0000002C);
+check_value("bits x2",   u_bits.u_regfile.regs[2],  32'h00002000);
+check_value("bits x10",  u_bits.u_regfile.regs[10], 32'd13);
+check_value("bits mem0", u_bits.u_dmem.mem[0], 32'h80F0A55A);
+check_value("bits mem1", u_bits.u_dmem.mem[1], 32'hFFFFFFC0);
+check_value("bits mem2", u_bits.u_dmem.mem[2], 32'd13);
+check_value("bits mem3", u_bits.u_dmem.mem[3], 32'hFFFFFFF8);
+check_value("bits mem4", u_bits.u_dmem.mem[4], 32'h0000000F);
+check_value("bits mem5", u_bits.u_dmem.mem[5], 32'h0F0A55A0);
+check_value("bits mem6", u_bits.u_dmem.mem[6], 32'h0000A55A);
+check_value("bits mem7", u_bits.u_dmem.mem[7], 32'h80F0A55F);
+check_value("bits mem8", u_bits.u_dmem.mem[8], 32'h7F0F5AA5);
+// nothing may be written just past the data
+check_value("bits mem9", u_bits.u_dmem.mem[9], 32'hxxxxxxxx);
+check_value("bits pc",   u_bits.pc, 32'd44);
+
 if (errors == 0)
 $display("PASS: core, %0d checks, 0 errors", checks);
 else
@@ -308,4 +346,3 @@ $finish;
 end
 
 endmodule
-
