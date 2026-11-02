@@ -14,6 +14,12 @@ reg exp_src;
 
 core_pipe #(.PROGRAM("tb/pipe_stage_test.hex"), .DATA("tb/pipe_data_test.hex")) dut (.clk(clk), .reset(reset));
 core_pipe #(.PROGRAM("tests/pipe/alu_full.hex")) u_alu_full (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/pipe/mem_ops.hex")) u_mem_ops (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/pipe/byte_ops.hex")) u_byte_ops (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/pipe/branch_all.hex")) u_branch_all (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/pipe/jal_ops.hex")) u_jal_ops (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/pipe/loop_sum.hex")) u_loop_sum (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/pipe/upper_jalr.hex")) u_upper_jalr (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -43,6 +49,67 @@ t_imm[i] = imm;
 t_rd[i] = rd;
 t_ctrl[i] = ctrl;
 t_res[i] = res;
+end
+endtask
+
+// ---- done detection: the spin jal in Execute jumps to itself, then wait for the pipeline to drain ----
+localparam NP = 7;
+localparam DRAIN = 4;
+localparam TIMEOUT = 20000;
+localparam [NP-1:0] ALL = {NP{1'b1}};
+
+// index 0 = alu_full, 1 = mem_ops, 2 = byte_ops, 3 = branch_all, 4 = jal_ops, 5 = loop_sum, 6 = upper_jalr
+wire [NP-1:0] srcs = {u_upper_jalr.ex_pc_src, u_loop_sum.ex_pc_src, u_jal_ops.ex_pc_src, u_branch_all.ex_pc_src, u_byte_ops.ex_pc_src, u_mem_ops.ex_pc_src, u_alu_full.ex_pc_src};
+wire [32*NP-1:0] xpcs = {u_upper_jalr.ex_pc, u_loop_sum.ex_pc, u_jal_ops.ex_pc, u_branch_all.ex_pc, u_byte_ops.ex_pc, u_mem_ops.ex_pc, u_alu_full.ex_pc};
+wire [32*NP-1:0] nexts = {u_upper_jalr.next_pc, u_loop_sum.next_pc, u_jal_ops.next_pc, u_branch_all.next_pc, u_byte_ops.next_pc, u_mem_ops.next_pc, u_alu_full.next_pc};
+
+integer edges;
+integer j;
+reg [NP-1:0] found;
+reg [NP-1:0] done;
+integer found_at [0:NP-1];
+integer drain [0:NP-1];
+reg [31:0] spin_pc [0:NP-1];
+
+initial begin
+edges = -1;
+found = 0;
+done = 0;
+for (j = 0; j < NP; j = j + 1) begin
+found_at[j] = 0;
+drain[j] = 0;
+spin_pc[j] = 32'hxxxxxxxx;
+end
+end
+
+// the reset edge is edge 0; at edge n the detector sees the state of the cycle that ends at edge n
+always @(posedge clk) begin
+edges = edges + 1;
+for (j = 0; j < NP; j = j + 1) begin
+if (!found[j]) begin
+if ((srcs[j] === 1'b1) && ((^xpcs[32*j +: 32]) !== 1'bx) && (nexts[32*j +: 32] === xpcs[32*j +: 32])) begin
+found[j] = 1'b1;
+found_at[j] = edges;
+spin_pc[j] = xpcs[32*j +: 32];
+end
+end
+else if (!done[j]) begin
+drain[j] = drain[j] + 1;
+if (drain[j] >= DRAIN) done[j] = 1'b1;
+end
+end
+end
+
+task check_value;
+input [8*16-1:0] name;
+input [31:0] actual;
+input [31:0] expected;
+begin
+checks = checks + 1;
+if (actual !== expected) begin
+errors = errors + 1;
+$display("FAIL: %0s got=%h expected=%h", name, actual, expected);
+end
 end
 endtask
 
@@ -215,38 +282,143 @@ check(13, "x12 unchg", dut.u_regfile.regs[12], 32'h0C0C0C0C);
 #1;
 check(14, "x12", dut.u_regfile.regs[12], 32'h00000028);
 
-// the clock keeps running the alu_full program: the spin is in Execute after edge 26
-repeat (12) @(posedge clk);
+// wait until every program is done (spin found, then drained) or until the timeout; falling edges avoid a race with the detector
+while ((done !== ALL) && (edges < TIMEOUT)) @(negedge clk);
 #1;
-check(26, "spin ex_pc", u_alu_full.ex_pc, 32'd96);
-check(26, "spin src", u_alu_full.ex_pc_src, 32'd1);
-check(26, "spin next", u_alu_full.next_pc, 32'd96);
 
-// the last write lands at edge 28; wait until edge 30 (temporary fixed wait, Build 6 replaces it)
-repeat (4) @(posedge clk);
-#1;
-check(30, "alu_full x1",  u_alu_full.u_regfile.regs[1],  32'd12);
-check(30, "alu_full x2",  u_alu_full.u_regfile.regs[2],  32'd10);
-check(30, "alu_full x3",  u_alu_full.u_regfile.regs[3],  32'hFFFFFFF0);
-check(30, "alu_full x4",  u_alu_full.u_regfile.regs[4],  32'd3);
-check(30, "alu_full x5",  u_alu_full.u_regfile.regs[5],  32'd6);
-check(30, "alu_full x6",  u_alu_full.u_regfile.regs[6],  32'd96);
-check(30, "alu_full x7",  u_alu_full.u_regfile.regs[7],  32'h1FFFFFFE);
-check(30, "alu_full x8",  u_alu_full.u_regfile.regs[8],  32'hFFFFFFFE);
-check(30, "alu_full x9",  u_alu_full.u_regfile.regs[9],  32'd0);
-check(30, "alu_full x10", u_alu_full.u_regfile.regs[10], 32'd1);
-check(30, "alu_full x11", u_alu_full.u_regfile.regs[11], 32'hFFFFFFF3);
-check(30, "alu_full x12", u_alu_full.u_regfile.regs[12], 32'd1034);
-check(30, "alu_full x13", u_alu_full.u_regfile.regs[13], 32'd1264);
-check(30, "alu_full x14", u_alu_full.u_regfile.regs[14], 32'd0);
-check(30, "alu_full x15", u_alu_full.u_regfile.regs[15], 32'd1);
-check(30, "alu_full x16", u_alu_full.u_regfile.regs[16], 32'd1);
-check(30, "alu_full x17", u_alu_full.u_regfile.regs[17], 32'd0);
-check(30, "alu_full x18", u_alu_full.u_regfile.regs[18], 32'd192);
-check(30, "alu_full x19", u_alu_full.u_regfile.regs[19], 32'h0FFFFFFF);
-check(30, "alu_full x20", u_alu_full.u_regfile.regs[20], 32'hFFFFFFFF);
-check(30, "alu_full x21", u_alu_full.u_regfile.regs[21], 32'd1);
-check(30, "alu_full x22", u_alu_full.u_regfile.regs[22], 32'h80000000);
+$display("INFO: core_pipe: all programs done after %0d edges", edges);
+$display("INFO: alu_full: spin found at edge %0d", found_at[0]);
+$display("INFO: mem_ops: spin found at edge %0d", found_at[1]);
+$display("INFO: byte_ops: spin found at edge %0d", found_at[2]);
+$display("INFO: branch_all: spin found at edge %0d", found_at[3]);
+$display("INFO: jal_ops: spin found at edge %0d", found_at[4]);
+$display("INFO: loop_sum: spin found at edge %0d", found_at[5]);
+$display("INFO: upper_jalr: spin found at edge %0d", found_at[6]);
+
+// alu_full: spin address 96
+check_value("alu_full done", done[0], 1);
+check_value("alu_full spin", spin_pc[0], 96);
+check_value("alu_full edge", found_at[0], 27);
+check_value("alu_full x1",  u_alu_full.u_regfile.regs[1],  32'd12);
+check_value("alu_full x2",  u_alu_full.u_regfile.regs[2],  32'd10);
+check_value("alu_full x3",  u_alu_full.u_regfile.regs[3],  32'hFFFFFFF0);
+check_value("alu_full x4",  u_alu_full.u_regfile.regs[4],  32'd3);
+check_value("alu_full x5",  u_alu_full.u_regfile.regs[5],  32'd6);
+check_value("alu_full x6",  u_alu_full.u_regfile.regs[6],  32'd96);
+check_value("alu_full x7",  u_alu_full.u_regfile.regs[7],  32'h1FFFFFFE);
+check_value("alu_full x8",  u_alu_full.u_regfile.regs[8],  32'hFFFFFFFE);
+check_value("alu_full x9",  u_alu_full.u_regfile.regs[9],  32'd0);
+check_value("alu_full x10", u_alu_full.u_regfile.regs[10], 32'd1);
+check_value("alu_full x11", u_alu_full.u_regfile.regs[11], 32'hFFFFFFF3);
+check_value("alu_full x12", u_alu_full.u_regfile.regs[12], 32'd1034);
+check_value("alu_full x13", u_alu_full.u_regfile.regs[13], 32'd1264);
+check_value("alu_full x14", u_alu_full.u_regfile.regs[14], 32'd0);
+check_value("alu_full x15", u_alu_full.u_regfile.regs[15], 32'd1);
+check_value("alu_full x16", u_alu_full.u_regfile.regs[16], 32'd1);
+check_value("alu_full x17", u_alu_full.u_regfile.regs[17], 32'd0);
+check_value("alu_full x18", u_alu_full.u_regfile.regs[18], 32'd192);
+check_value("alu_full x19", u_alu_full.u_regfile.regs[19], 32'h0FFFFFFF);
+check_value("alu_full x20", u_alu_full.u_regfile.regs[20], 32'hFFFFFFFF);
+check_value("alu_full x21", u_alu_full.u_regfile.regs[21], 32'd1);
+check_value("alu_full x22", u_alu_full.u_regfile.regs[22], 32'h80000000);
+
+// mem_ops: spin address 44; x8 and x28 are the rd fields of two stores and must stay unwritten
+check_value("mem_ops done", done[1], 1);
+check_value("mem_ops spin", spin_pc[1], 44);
+check_value("mem_ops edge", found_at[1], 14);
+check_value("mem_ops x1",  u_mem_ops.u_regfile.regs[1], 32'd123);
+check_value("mem_ops x2",  u_mem_ops.u_regfile.regs[2], 32'd256);
+check_value("mem_ops x3",  u_mem_ops.u_regfile.regs[3], 32'hFFFFFFFB);
+check_value("mem_ops x4",  u_mem_ops.u_regfile.regs[4], 32'd77);
+check_value("mem_ops x5",  u_mem_ops.u_regfile.regs[5], 32'hFFFFFFFB);
+check_value("mem_ops x6",  u_mem_ops.u_regfile.regs[6], 32'd123);
+check_value("mem_ops x7",  u_mem_ops.u_regfile.regs[7], 32'd77);
+check_value("mem_ops x8",  u_mem_ops.u_regfile.regs[8], 32'hxxxxxxxx);
+check_value("mem_ops x28", u_mem_ops.u_regfile.regs[28], 32'hxxxxxxxx);
+check_value("mem_ops mem63", u_mem_ops.u_dmem.mem[63], 32'd77);
+check_value("mem_ops mem64", u_mem_ops.u_dmem.mem[64], 32'd123);
+check_value("mem_ops mem66", u_mem_ops.u_dmem.mem[66], 32'hFFFFFFFB);
+
+// byte_ops: spin address 188
+check_value("byte_ops done", done[2], 1);
+check_value("byte_ops spin", spin_pc[2], 188);
+check_value("byte_ops edge", found_at[2], 50);
+check_value("byte_ops x3",  u_byte_ops.u_regfile.regs[3],  32'h00000001);
+check_value("byte_ops x4",  u_byte_ops.u_regfile.regs[4],  32'h0000007F);
+check_value("byte_ops x5",  u_byte_ops.u_regfile.regs[5],  32'hFFFFFFFF);
+check_value("byte_ops x6",  u_byte_ops.u_regfile.regs[6],  32'hFFFFFF80);
+check_value("byte_ops x7",  u_byte_ops.u_regfile.regs[7],  32'h000000FF);
+check_value("byte_ops x8",  u_byte_ops.u_regfile.regs[8],  32'h00000080);
+check_value("byte_ops x9",  u_byte_ops.u_regfile.regs[9],  32'h00007F01);
+check_value("byte_ops x10", u_byte_ops.u_regfile.regs[10], 32'hFFFF80FF);
+check_value("byte_ops x11", u_byte_ops.u_regfile.regs[11], 32'h000080FF);
+check_value("byte_ops x12", u_byte_ops.u_regfile.regs[12], 32'h80FF7F01);
+check_value("byte_ops x18", u_byte_ops.u_regfile.regs[18], 32'h1122AA44);
+check_value("byte_ops x19", u_byte_ops.u_regfile.regs[19], 32'hDDCCAABB);
+check_value("byte_ops x21", u_byte_ops.u_regfile.regs[21], 32'hDDCC0123);
+check_value("byte_ops x23", u_byte_ops.u_regfile.regs[23], 32'h04560123);
+check_value("byte_ops mem64", u_byte_ops.u_dmem.mem[64], 32'h80FF7F01);
+check_value("byte_ops mem65", u_byte_ops.u_dmem.mem[65], 32'h04560123);
+check_value("byte_ops mem66", u_byte_ops.u_dmem.mem[66], 32'hxxxxxxxx);
+
+// branch_all: spin address 360; result is 1 where the branch was taken
+check_value("branch_all done", done[3], 1);
+check_value("branch_all spin", spin_pc[3], 360);
+check_value("branch_all edge", found_at[3], 84);
+check_value("branch_all x8",  u_branch_all.u_regfile.regs[8],  32'd0);
+check_value("branch_all x9",  u_branch_all.u_regfile.regs[9],  32'd1);
+check_value("branch_all x10", u_branch_all.u_regfile.regs[10], 32'd1);
+check_value("branch_all x11", u_branch_all.u_regfile.regs[11], 32'd0);
+check_value("branch_all x12", u_branch_all.u_regfile.regs[12], 32'd0);
+check_value("branch_all x13", u_branch_all.u_regfile.regs[13], 32'd1);
+check_value("branch_all x14", u_branch_all.u_regfile.regs[14], 32'd0);
+check_value("branch_all x15", u_branch_all.u_regfile.regs[15], 32'd1);
+check_value("branch_all x16", u_branch_all.u_regfile.regs[16], 32'd0);
+check_value("branch_all x17", u_branch_all.u_regfile.regs[17], 32'd1);
+check_value("branch_all x18", u_branch_all.u_regfile.regs[18], 32'd0);
+check_value("branch_all x19", u_branch_all.u_regfile.regs[19], 32'd1);
+check_value("branch_all x20", u_branch_all.u_regfile.regs[20], 32'd1);
+check_value("branch_all x21", u_branch_all.u_regfile.regs[21], 32'd1);
+check_value("branch_all x22", u_branch_all.u_regfile.regs[22], 32'd0);
+check_value("branch_all x23", u_branch_all.u_regfile.regs[23], 32'd1);
+
+// jal_ops: spin address 68; x3 is skipped and must stay unwritten
+check_value("jal_ops done", done[4], 1);
+check_value("jal_ops spin", spin_pc[4], 68);
+check_value("jal_ops edge", found_at[4], 18);
+check_value("jal_ops x1", u_jal_ops.u_regfile.regs[1], 32'd1);
+check_value("jal_ops x2", u_jal_ops.u_regfile.regs[2], 32'd2);
+check_value("jal_ops x3", u_jal_ops.u_regfile.regs[3], 32'hxxxxxxxx);
+check_value("jal_ops x4", u_jal_ops.u_regfile.regs[4], 32'd4);
+check_value("jal_ops x5", u_jal_ops.u_regfile.regs[5], 32'd8);
+check_value("jal_ops x6", u_jal_ops.u_regfile.regs[6], 32'd60);
+
+// loop_sum: spin address 48
+check_value("loop_sum done", done[5], 1);
+check_value("loop_sum spin", spin_pc[5], 48);
+check_value("loop_sum edge", found_at[5], 50);
+check_value("loop_sum x1", u_loop_sum.u_regfile.regs[1], 32'd0);
+check_value("loop_sum x2", u_loop_sum.u_regfile.regs[2], 32'd15);
+
+// upper_jalr: spin address 116; x14 is skipped by the jalr and must stay unwritten
+check_value("upper_jalr done", done[6], 1);
+check_value("upper_jalr spin", spin_pc[6], 116);
+check_value("upper_jalr edge", found_at[6], 37);
+check_value("upper_jalr x1",  u_upper_jalr.u_regfile.regs[1],  32'h12345000);
+check_value("upper_jalr x2",  u_upper_jalr.u_regfile.regs[2],  32'h00001800);
+check_value("upper_jalr x3",  u_upper_jalr.u_regfile.regs[3],  32'h12345678);
+check_value("upper_jalr x4",  u_upper_jalr.u_regfile.regs[4],  32'h80000000);
+check_value("upper_jalr x5",  u_upper_jalr.u_regfile.regs[5],  32'hFFFFF000);
+check_value("upper_jalr x6",  u_upper_jalr.u_regfile.regs[6],  32'h00001034);
+check_value("upper_jalr x7",  u_upper_jalr.u_regfile.regs[7],  32'h00000038);
+check_value("upper_jalr x8",  u_upper_jalr.u_regfile.regs[8],  32'hFFFFF03C);
+check_value("upper_jalr x9",  u_upper_jalr.u_regfile.regs[9],  32'h00000044);
+check_value("upper_jalr x10", u_upper_jalr.u_regfile.regs[10], 32'd77);
+check_value("upper_jalr x11", u_upper_jalr.u_regfile.regs[11], 32'd5);
+check_value("upper_jalr x12", u_upper_jalr.u_regfile.regs[12], 32'h00000050);
+check_value("upper_jalr x13", u_upper_jalr.u_regfile.regs[13], 32'h00000064);
+check_value("upper_jalr x14", u_upper_jalr.u_regfile.regs[14], 32'hxxxxxxxx);
+check_value("upper_jalr x15", u_upper_jalr.u_regfile.regs[15], 32'd7);
 
 if (errors == 0)
 $display("PASS: core_pipe, %0d checks, 0 errors", checks);
