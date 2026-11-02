@@ -31,6 +31,9 @@ pipe_reg #(.WIDTH(96)) u_if_id (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0
 assign {id_pc, id_pc_plus4, id_inst} = if_id_q;
 
 // ---- Decode stage ----
+wire [31:0] wb_data;
+wire [4:0] wb_rd;
+wire wb_reg_write;
 wire [31:0] id_rdata1;
 wire [31:0] id_rdata2;
 wire [31:0] id_imm;
@@ -53,7 +56,7 @@ control u_control (.opcode(id_inst[6:0]), .funct3(id_inst[14:12]), .funct7(id_in
 .mem_write(id_mem_write), .result_src(id_result_src), .branch(id_branch), .jump(id_jump),
 .jalr(id_jalr), .br_lt(id_br_lt), .br_inv(id_br_inv), .mem_size(id_mem_size), .load_unsigned(id_load_unsigned));
 
-regfile u_regfile (.clk(clk), .we(1'b0), .waddr(5'b00000), .wdata(32'b0),
+regfile u_regfile (.clk(clk), .we(wb_reg_write), .waddr(wb_rd), .wdata(wb_data),
 .raddr1(id_inst[19:15]), .raddr2(id_inst[24:20]), .rdata1(id_rdata1), .rdata2(id_rdata2));
 
 immgen u_immgen (.inst(id_inst), .imm_sel(id_imm_sel), .imm(id_imm));
@@ -145,8 +148,6 @@ load_align u_load_align (.word(mm_rdata), .addr_low(mm_result[1:0]), .mem_size(m
 wire [72:0] mem_wb_q;
 wire [31:0] wb_result;
 wire [31:0] wb_load_value;
-wire [4:0] wb_rd;
-wire wb_reg_write;
 wire [2:0] wb_result_src;
 
 pipe_reg #(.WIDTH(73)) u_mem_wb (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0),
@@ -154,5 +155,8 @@ pipe_reg #(.WIDTH(73)) u_mem_wb (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b
 .q(mem_wb_q));
 
 assign {wb_result, wb_load_value, wb_rd, wb_reg_write, wb_result_src} = mem_wb_q;
+
+// ---- Write-back stage ----
+assign wb_data = (wb_result_src == RES_MEM) ? wb_load_value : wb_result;
 
 endmodule

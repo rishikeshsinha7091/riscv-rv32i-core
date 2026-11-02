@@ -13,6 +13,7 @@ reg [31:0] exp_next;
 reg exp_src;
 
 core_pipe #(.PROGRAM("tb/pipe_stage_test.hex"), .DATA("tb/pipe_data_test.hex")) dut (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/pipe/alu_full.hex")) u_alu_full (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -178,7 +179,74 @@ check(e, "dmem[518]", dut.u_dmem.mem[518], 32'hxxxxxxxx);
 check(e, "wb_load_val", dut.wb_load_value, 32'hA1B2C3D4);
 end
 if (e == 7) check(e, "dmem[518]", dut.u_dmem.mem[518], 32'h09090909);
+
+// register file: a write lands one edge after its instruction is in MEM/WB, never earlier
+if (e == 4) check(e, "x5 early", dut.u_regfile.regs[5], 32'h05050505);
+if (e == 5) begin
+check(e, "x5", dut.u_regfile.regs[5], 32'h01010108);
+check(e, "x6 early", dut.u_regfile.regs[6], 32'h06060606);
 end
+if (e == 6) begin
+check(e, "x6", dut.u_regfile.regs[6], 32'h05050505);
+check(e, "x7 early", dut.u_regfile.regs[7], 32'h07070707);
+end
+if (e == 7) check(e, "x7", dut.u_regfile.regs[7], 32'hA1B2C3D4);
+if (e == 8) check(e, "x16 unchg", dut.u_regfile.regs[16], 32'h10101010);
+if (e == 9) begin
+check(e, "x8 unchg", dut.u_regfile.regs[8], 32'h08080808);
+check(e, "x13 early", dut.u_regfile.regs[13], 32'h0D0D0D0D);
+end
+if (e == 10) begin
+check(e, "x13", dut.u_regfile.regs[13], 32'h12345000);
+check(e, "x14 early", dut.u_regfile.regs[14], 32'h0E0E0E0E);
+end
+if (e == 11) begin
+check(e, "x14", dut.u_regfile.regs[14], 32'h00010018);
+check(e, "x15 early", dut.u_regfile.regs[15], 32'h0F0F0F0F);
+end
+if (e == 12) check(e, "x15", dut.u_regfile.regs[15], 32'hFFFFFFFF);
+end
+
+// two more edges: bltu must not write x12 (its rd field), then the jal writes its link value
+@(posedge clk);
+#1;
+check(13, "x12 unchg", dut.u_regfile.regs[12], 32'h0C0C0C0C);
+@(posedge clk);
+#1;
+check(14, "x12", dut.u_regfile.regs[12], 32'h00000028);
+
+// the clock keeps running the alu_full program: the spin is in Execute after edge 26
+repeat (12) @(posedge clk);
+#1;
+check(26, "spin ex_pc", u_alu_full.ex_pc, 32'd96);
+check(26, "spin src", u_alu_full.ex_pc_src, 32'd1);
+check(26, "spin next", u_alu_full.next_pc, 32'd96);
+
+// the last write lands at edge 28; wait until edge 30 (temporary fixed wait, Build 6 replaces it)
+repeat (4) @(posedge clk);
+#1;
+check(30, "alu_full x1",  u_alu_full.u_regfile.regs[1],  32'd12);
+check(30, "alu_full x2",  u_alu_full.u_regfile.regs[2],  32'd10);
+check(30, "alu_full x3",  u_alu_full.u_regfile.regs[3],  32'hFFFFFFF0);
+check(30, "alu_full x4",  u_alu_full.u_regfile.regs[4],  32'd3);
+check(30, "alu_full x5",  u_alu_full.u_regfile.regs[5],  32'd6);
+check(30, "alu_full x6",  u_alu_full.u_regfile.regs[6],  32'd96);
+check(30, "alu_full x7",  u_alu_full.u_regfile.regs[7],  32'h1FFFFFFE);
+check(30, "alu_full x8",  u_alu_full.u_regfile.regs[8],  32'hFFFFFFFE);
+check(30, "alu_full x9",  u_alu_full.u_regfile.regs[9],  32'd0);
+check(30, "alu_full x10", u_alu_full.u_regfile.regs[10], 32'd1);
+check(30, "alu_full x11", u_alu_full.u_regfile.regs[11], 32'hFFFFFFF3);
+check(30, "alu_full x12", u_alu_full.u_regfile.regs[12], 32'd1034);
+check(30, "alu_full x13", u_alu_full.u_regfile.regs[13], 32'd1264);
+check(30, "alu_full x14", u_alu_full.u_regfile.regs[14], 32'd0);
+check(30, "alu_full x15", u_alu_full.u_regfile.regs[15], 32'd1);
+check(30, "alu_full x16", u_alu_full.u_regfile.regs[16], 32'd1);
+check(30, "alu_full x17", u_alu_full.u_regfile.regs[17], 32'd0);
+check(30, "alu_full x18", u_alu_full.u_regfile.regs[18], 32'd192);
+check(30, "alu_full x19", u_alu_full.u_regfile.regs[19], 32'h0FFFFFFF);
+check(30, "alu_full x20", u_alu_full.u_regfile.regs[20], 32'hFFFFFFFF);
+check(30, "alu_full x21", u_alu_full.u_regfile.regs[21], 32'd1);
+check(30, "alu_full x22", u_alu_full.u_regfile.regs[22], 32'h80000000);
 
 if (errors == 0)
 $display("PASS: core_pipe, %0d checks, 0 errors", checks);
