@@ -62,13 +62,15 @@ regfile u_regfile (.clk(clk), .we(wb_reg_write), .waddr(wb_rd), .wdata(wb_data),
 immgen u_immgen (.inst(id_inst), .imm_sel(id_imm_sel), .imm(id_imm));
 
 // ---- ID/EX register ----
-wire [182:0] id_ex_q;
+wire [192:0] id_ex_q;
 wire [31:0] ex_pc;
 wire [31:0] ex_pc_plus4;
 wire [31:0] ex_rdata1;
 wire [31:0] ex_rdata2;
 wire [31:0] ex_imm;
 wire [4:0] ex_rd;
+wire [4:0] ex_rs1;
+wire [4:0] ex_rs2;
 wire ex_reg_write;
 wire [2:0] ex_result_src;
 wire ex_mem_write;
@@ -82,11 +84,11 @@ wire ex_br_inv;
 wire ex_alu_src;
 wire [3:0] ex_alu_op;
 
-pipe_reg #(.WIDTH(183)) u_id_ex (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0),
-.d({id_pc, id_pc_plus4, id_rdata1, id_rdata2, id_imm, id_inst[11:7], id_reg_write, id_result_src, id_mem_write, id_mem_size, id_load_unsigned, id_branch, id_jump, id_jalr, id_br_lt, id_br_inv, id_alu_src, id_alu_op}),
+pipe_reg #(.WIDTH(193)) u_id_ex (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0),
+.d({id_pc, id_pc_plus4, id_rdata1, id_rdata2, id_imm, id_inst[11:7], id_inst[19:15], id_inst[24:20], id_reg_write, id_result_src, id_mem_write, id_mem_size, id_load_unsigned, id_branch, id_jump, id_jalr, id_br_lt, id_br_inv, id_alu_src, id_alu_op}),
 .q(id_ex_q));
 
-assign {ex_pc, ex_pc_plus4, ex_rdata1, ex_rdata2, ex_imm, ex_rd, ex_reg_write, ex_result_src, ex_mem_write, ex_mem_size, ex_load_unsigned, ex_branch, ex_jump, ex_jalr, ex_br_lt, ex_br_inv, ex_alu_src, ex_alu_op} = id_ex_q;
+assign {ex_pc, ex_pc_plus4, ex_rdata1, ex_rdata2, ex_imm, ex_rd, ex_rs1, ex_rs2, ex_reg_write, ex_result_src, ex_mem_write, ex_mem_size, ex_load_unsigned, ex_branch, ex_jump, ex_jalr, ex_br_lt, ex_br_inv, ex_alu_src, ex_alu_op} = id_ex_q;
 
 // ---- Execute stage ----
 wire [31:0] ex_alu_b;

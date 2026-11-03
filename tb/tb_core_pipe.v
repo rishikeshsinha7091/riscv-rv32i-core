@@ -31,6 +31,8 @@ reg [31:0] t_imm  [0:10];
 reg [4:0]  t_rd   [0:10];
 reg [17:0] t_ctrl [0:10];
 reg [31:0] t_res  [0:10];
+reg [4:0] t_rs1 [0:10];
+reg [4:0] t_rs2 [0:10];
 
 task set;
 input [31:0] i;
@@ -205,6 +207,17 @@ set(7,  32'hFFF00793, 32'h00000000, 32'h1F1F1F1F, 32'hFFFFFFFF, 5'd15, 18'h20010
 set(8,  32'h0108E663, 32'h11111111, 32'h10101010, 32'h0000000C, 5'd12, 18'h00249, 32'h00000000);
 set(9,  32'h0140066F, 32'h00000000, 32'h14141414, 32'h00000014, 5'd12, 18'h28100, 32'h00000028);
 set(10, 32'h00000000, 32'h00000000, 32'h00000000, 32'h00000000, 5'd0,  18'h00000, 32'h00000000);
+t_rs1[0] = 5'd1;  t_rs2[0] = 5'd7;
+t_rs1[1] = 5'd2;  t_rs2[1] = 5'd3;
+t_rs1[2] = 5'd4;  t_rs2[2] = 5'd12;
+t_rs1[3] = 5'd8;  t_rs2[3] = 5'd9;
+t_rs1[4] = 5'd10; t_rs2[4] = 5'd11;
+t_rs1[5] = 5'd8;  t_rs2[5] = 5'd3;
+t_rs1[6] = 5'd2;  t_rs2[6] = 5'd0;
+t_rs1[7] = 5'd0;  t_rs2[7] = 5'd31;
+t_rs1[8] = 5'd17; t_rs2[8] = 5'd16;
+t_rs1[9] = 5'd0;  t_rs2[9] = 5'd20;
+t_rs1[10] = 5'd0; t_rs2[10] = 5'd0;
 
 // write-back does not exist yet: give x1 to x31 known values, x(k) = k * 0x01010101
 for (k = 1; k < 32; k = k + 1) dut.u_regfile.regs[k] = k * 32'h01010101;
@@ -215,6 +228,8 @@ for (k = 1; k < 32; k = k + 1) dut.u_regfile.regs[k] = k * 32'h01010101;
 check(0, "pc", dut.pc, 32'd0);
 check_ifid(0, 32'd0, 32'd0, 32'd0);
 check_idex(0, 32'd0, 32'd0, 32'd0, 32'd0, 32'd0, 5'd0, 18'd0);
+check(0, "ex_rs1", dut.ex_rs1, 5'd0);
+check(0, "ex_rs2", dut.ex_rs2, 5'd0);
 check_exmem(0, 32'd0, 32'd0, 5'd0, 8'd0);
 check_memwb(0, 32'd0, 5'd0, 4'd0);
 
@@ -234,6 +249,13 @@ check(e, "ex_pc_src", dut.ex_pc_src, exp_src);
 if (e <= 11) check_ifid(e, 4*(e-1), 4*e, t_word[e-1]);
 if (e == 1) check_idex(e, 32'd0, 32'd0, 32'd0, 32'd0, 32'd0, 5'd0, 18'd0);
 else check_idex(e, 4*(e-2), 4*(e-1), t_r1[e-2], t_r2[e-2], t_imm[e-2], t_rd[e-2], t_ctrl[e-2]);
+if (e == 1) begin
+check(e, "ex_rs1", dut.ex_rs1, 5'd0);
+check(e, "ex_rs2", dut.ex_rs2, 5'd0);
+end else begin
+check(e, "ex_rs1", dut.ex_rs1, t_rs1[e-2]);
+check(e, "ex_rs2", dut.ex_rs2, t_rs2[e-2]);
+end
 if (e >= 3) check_exmem(e, t_res[e-3], t_r2[e-3], t_rd[e-3], t_ctrl[e-3] >> 10);
 else check_exmem(e, 32'd0, 32'd0, 5'd0, 8'd0);
 if (e >= 4) check_memwb(e, t_res[e-4], t_rd[e-4], t_ctrl[e-4] >> 14);
