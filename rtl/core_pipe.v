@@ -7,6 +7,7 @@ input reset
 );
 
 `include "result_codes.vh"
+`include "fwd_codes.vh"
 
 // ---- Fetch stage ----
 wire [31:0] pc;
@@ -99,10 +100,14 @@ wire ex_taken;
 wire ex_pc_src;
 wire [31:0] ex_jalr_target;
 reg [31:0] ex_result;
+wire [1:0] ex_fwd_a;
+wire [1:0] ex_fwd_b;
+wire [31:0] ex_src1;
+wire [31:0] ex_src2;
 
-assign ex_alu_b = ex_alu_src ? ex_imm : ex_rdata2;
+assign ex_alu_b = ex_alu_src ? ex_imm : ex_src2;
 
-alu u_alu (.a(ex_rdata1), .b(ex_alu_b), .alu_op(ex_alu_op), .y(ex_alu_y), .zero(ex_zero));
+alu u_alu (.a(ex_src1), .b(ex_alu_b), .alu_op(ex_alu_op), .y(ex_alu_y), .zero(ex_zero));
 
 assign ex_pc_target = ex_pc + ex_imm;
 assign ex_taken = (ex_br_lt ? ex_alu_y[0] : ex_zero) ^ ex_br_inv;
@@ -131,10 +136,17 @@ wire [1:0] mm_mem_size;
 wire mm_load_unsigned;
 
 pipe_reg #(.WIDTH(77)) u_ex_mem (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0),
-.d({ex_result, ex_rdata2, ex_rd, ex_reg_write, ex_result_src, ex_mem_write, ex_mem_size, ex_load_unsigned}),
+.d({ex_result, ex_src2, ex_rd, ex_reg_write, ex_result_src, ex_mem_write, ex_mem_size, ex_load_unsigned}),
 .q(ex_mem_q));
 
 assign {mm_result, mm_store_src, mm_rd, mm_reg_write, mm_result_src, mm_mem_write, mm_mem_size, mm_load_unsigned} = ex_mem_q;
+
+// ---- Forwarding: the two Execute operands (ALU a and b, store data, branch and jalr operands all use these) ----
+// A load in EX/MEM has its address in mm_result, so a load followed by its user needs the stall (a later build).
+fwd_unit u_fwd (.ex_rs1(ex_rs1), .ex_rs2(ex_rs2), .mm_rd(mm_rd), .mm_reg_write(mm_reg_write), .wb_rd(wb_rd), .wb_reg_write(wb_reg_write), .fwd_a(ex_fwd_a), .fwd_b(ex_fwd_b));
+
+assign ex_src1 = (ex_fwd_a == FWD_MEM) ? mm_result : ((ex_fwd_a == FWD_WB) ? wb_data : ex_rdata1);
+assign ex_src2 = (ex_fwd_b == FWD_MEM) ? mm_result : ((ex_fwd_b == FWD_WB) ? wb_data : ex_rdata2);
 
 // ---- Memory stage ----
 wire [3:0] mm_be;
