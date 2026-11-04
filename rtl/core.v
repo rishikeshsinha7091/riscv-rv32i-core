@@ -43,7 +43,7 @@ wire br_inv;
 wire [1:0] mem_size;
 wire load_unsigned;
 
-pc_reg u_pc (.clk(clk), .reset(reset), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
+pc_reg u_pc (.clk(clk), .reset(reset), .en(1'b1), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
 
 imem #(.INIT_FILE(PROGRAM)) u_imem (.pc(pc), .instr(inst));
 

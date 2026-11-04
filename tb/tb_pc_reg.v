@@ -4,6 +4,7 @@ module tb_pc_reg;
 
 reg clk;
 reg reset;
+reg en;
 reg [31:0] next_pc;
 wire [31:0] pc;
 wire [31:0] pc_plus4;
@@ -12,7 +13,7 @@ reg [31:0] last_pc;
 integer errors;
 integer tests;
 
-pc_reg dut (.clk(clk), .reset(reset), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
+pc_reg dut (.clk(clk), .reset(reset), .en(en), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
 
 always #5 clk = ~clk;
 
@@ -56,6 +57,7 @@ $dumpvars(0, tb_pc_reg);
 errors = 0;
 tests = 0;
 reset = 1;
+en = 1'b1;
 next_pc = 32'h0000_0040;
 
 // power-up: pc is unknown until the first clock edge, then reset makes it 0
@@ -83,6 +85,22 @@ step(1'b1, 32'h0000_0200, 32'h0000_0000, 32'h0000_0004);
 step(1'b1, 32'h0000_0200, 32'h0000_0000, 32'h0000_0004);
 step(1'b0, 32'h0000_0004, 32'h0000_0004, 32'h0000_0008);
 
+// enable low: pc holds, whatever next_pc is
+en = 1'b0;
+step(1'b0, 32'h0000_0300, 32'h0000_0004, 32'h0000_0008);
+step(1'b0, 32'h0000_0500, 32'h0000_0004, 32'h0000_0008);
+
+// enable high again: pc follows next_pc
+en = 1'b1;
+step(1'b0, 32'h0000_0008, 32'h0000_0008, 32'h0000_000C);
+
+// reset beats enable: reset held while enable is low
+en = 1'b0;
+step(1'b1, 32'h0000_0200, 32'h0000_0000, 32'h0000_0004);
+
+// back to normal operation
+en = 1'b1;
+step(1'b0, 32'h0000_0004, 32'h0000_0004, 32'h0000_0008);
 if (errors == 0) $display("PASS: tb_pc_reg - all %0d checks passed", tests);
 else $display("FAIL: tb_pc_reg - %0d of %0d checks failed", errors, tests);
 $finish;

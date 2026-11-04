@@ -17,7 +17,7 @@ wire [31:0] if_inst;
 
 // next_pc is assigned in the Execute stage (branch and jump mux)
 
-pc_reg u_pc (.clk(clk), .reset(reset), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
+pc_reg u_pc (.clk(clk), .reset(reset), .en(1'b1), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
 
 imem #(.INIT_FILE(PROGRAM)) u_imem (.pc(pc), .instr(if_inst));
 
