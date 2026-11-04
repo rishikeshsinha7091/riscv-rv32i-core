@@ -21,6 +21,7 @@ core_pipe #(.PROGRAM("tests/pipe/jal_ops.hex")) u_jal_ops (.clk(clk), .reset(res
 core_pipe #(.PROGRAM("tests/pipe/loop_sum.hex")) u_loop_sum (.clk(clk), .reset(reset));
 core_pipe #(.PROGRAM("tests/pipe/upper_jalr.hex")) u_upper_jalr (.clk(clk), .reset(reset));
 core_pipe #(.PROGRAM("tests/hazard/hazard_alu.hex")) u_hazard_alu (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/hazard/bypass_d3.hex")) u_bypass_d3 (.clk(clk), .reset(reset));
 
 always #5 clk = ~clk;
 
@@ -56,15 +57,15 @@ end
 endtask
 
 // ---- done detection: the spin jal in Execute jumps to itself, then wait for the pipeline to drain ----
-localparam NP = 8;
+localparam NP = 9;
 localparam DRAIN = 4;
 localparam TIMEOUT = 20000;
 localparam [NP-1:0] ALL = {NP{1'b1}};
 
-// index 0 = alu_full, 1 = mem_ops, 2 = byte_ops, 3 = branch_all, 4 = jal_ops, 5 = loop_sum, 6 = upper_jalr, 7 = hazard_alu
-wire [NP-1:0] srcs = {u_hazard_alu.ex_pc_src, u_upper_jalr.ex_pc_src, u_loop_sum.ex_pc_src, u_jal_ops.ex_pc_src, u_branch_all.ex_pc_src, u_byte_ops.ex_pc_src, u_mem_ops.ex_pc_src, u_alu_full.ex_pc_src};
-wire [32*NP-1:0] xpcs = {u_hazard_alu.ex_pc, u_upper_jalr.ex_pc, u_loop_sum.ex_pc, u_jal_ops.ex_pc, u_branch_all.ex_pc, u_byte_ops.ex_pc, u_mem_ops.ex_pc, u_alu_full.ex_pc};
-wire [32*NP-1:0] nexts = {u_hazard_alu.next_pc, u_upper_jalr.next_pc, u_loop_sum.next_pc, u_jal_ops.next_pc, u_branch_all.next_pc, u_byte_ops.next_pc, u_mem_ops.next_pc, u_alu_full.next_pc};
+// index 0 = alu_full, 1 = mem_ops, 2 = byte_ops, 3 = branch_all, 4 = jal_ops, 5 = loop_sum, 6 = upper_jalr, 7 = hazard_alu, 8 = bypass_d3
+wire [NP-1:0] srcs = {u_bypass_d3.ex_pc_src, u_hazard_alu.ex_pc_src, u_upper_jalr.ex_pc_src, u_loop_sum.ex_pc_src, u_jal_ops.ex_pc_src, u_branch_all.ex_pc_src, u_byte_ops.ex_pc_src, u_mem_ops.ex_pc_src, u_alu_full.ex_pc_src};
+wire [32*NP-1:0] xpcs = {u_bypass_d3.ex_pc, u_hazard_alu.ex_pc, u_upper_jalr.ex_pc, u_loop_sum.ex_pc, u_jal_ops.ex_pc, u_branch_all.ex_pc, u_byte_ops.ex_pc, u_mem_ops.ex_pc, u_alu_full.ex_pc};
+wire [32*NP-1:0] nexts = {u_bypass_d3.next_pc, u_hazard_alu.next_pc, u_upper_jalr.next_pc, u_loop_sum.next_pc, u_jal_ops.next_pc, u_branch_all.next_pc, u_byte_ops.next_pc, u_mem_ops.next_pc, u_alu_full.next_pc};
 
 integer edges;
 integer j;
@@ -318,6 +319,7 @@ $display("INFO: jal_ops: spin found at edge %0d", found_at[4]);
 $display("INFO: loop_sum: spin found at edge %0d", found_at[5]);
 $display("INFO: upper_jalr: spin found at edge %0d", found_at[6]);
 $display("INFO: hazard_alu: spin found at edge %0d", found_at[7]);
+$display("INFO: bypass_d3: spin found at edge %0d", found_at[8]);
 
 // alu_full: spin address 96
 check_value("alu_full done", done[0], 1);
@@ -478,6 +480,30 @@ check_value("hazard_alu x29", u_hazard_alu.u_regfile.regs[29], 32'd33);
 check_value("hazard_alu mem64", u_hazard_alu.u_dmem.mem[64], 32'd77);
 check_value("hazard_alu mem65", u_hazard_alu.u_dmem.mem[65], 32'd88);
 check_value("hazard_alu mem66", u_hazard_alu.u_dmem.mem[66], 32'd99);
+
+// bypass_d3: spin address 160
+check_value("bypass_d3 done", done[8], 1);
+check_value("bypass_d3 spin", spin_pc[8], 160);
+check_value("bypass_d3 edge", found_at[8], 43);
+check_value("bypass_d3 x1",  u_bypass_d3.u_regfile.regs[1],  32'd11);
+check_value("bypass_d3 x4",  u_bypass_d3.u_regfile.regs[4],  32'd11);
+check_value("bypass_d3 x5",  u_bypass_d3.u_regfile.regs[5],  32'd22);
+check_value("bypass_d3 x8",  u_bypass_d3.u_regfile.regs[8],  32'd22);
+check_value("bypass_d3 x9",  u_bypass_d3.u_regfile.regs[9],  32'd5);
+check_value("bypass_d3 x12", u_bypass_d3.u_regfile.regs[12], 32'd10);
+check_value("bypass_d3 x13", u_bypass_d3.u_regfile.regs[13], 32'd33);
+check_value("bypass_d3 x15", u_bypass_d3.u_regfile.regs[15], 32'd3);
+check_value("bypass_d3 x16", u_bypass_d3.u_regfile.regs[16], 32'd3);
+check_value("bypass_d3 x17", u_bypass_d3.u_regfile.regs[17], 32'd0);
+check_value("bypass_d3 x18", u_bypass_d3.u_regfile.regs[18], 32'd22);
+check_value("bypass_d3 x19", u_bypass_d3.u_regfile.regs[19], 32'd33);
+check_value("bypass_d3 x20", u_bypass_d3.u_regfile.regs[20], 32'h00002100);
+check_value("bypass_d3 x21", u_bypass_d3.u_regfile.regs[21], 32'd33);
+check_value("bypass_d3 x22", u_bypass_d3.u_regfile.regs[22], 32'd33);
+check_value("bypass_d3 x23", u_bypass_d3.u_regfile.regs[23], 32'd33);
+check_value("bypass_d3 x24", u_bypass_d3.u_regfile.regs[24], 32'd40);
+check_value("bypass_d3 x27", u_bypass_d3.u_regfile.regs[27], 32'd43);
+check_value("bypass_d3 mem66", u_bypass_d3.u_dmem.mem[66], 32'd33);
 
 if (errors == 0)
 $display("PASS: core_pipe, %0d checks, 0 errors", checks);
