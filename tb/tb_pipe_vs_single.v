@@ -123,7 +123,7 @@ endmodule
 
 module tb_pipe_vs_single;
 
-localparam NPAIR = 14;
+localparam NPAIR = 15;
 localparam TIMEOUT = 2000;
 
 reg clk;
@@ -132,6 +132,27 @@ integer edges;
 integer k;
 integer total_checks;
 integer total_errors;
+
+integer top_checks;
+integer top_errors;
+integer r;
+integer kr;
+integer kd;
+integer mr;
+integer md;
+
+task check_value;
+input [8*24-1:0] name;
+input [31:0] actual;
+input [31:0] expected;
+begin
+top_checks = top_checks + 1;
+if (actual !== expected) begin
+top_errors = top_errors + 1;
+$display("FAIL: %0s got=%h expected=%h", name, actual, expected);
+end
+end
+endtask
 wire [NPAIR-1:0] done;
 wire [32*NPAIR-1:0] chk;
 wire [32*NPAIR-1:0] err;
@@ -150,6 +171,8 @@ pair #(.PROGRAM("sw/first.hex"), .DATA("sw/first.data.hex"), .NAME("c_first")) p
 pair #(.PROGRAM("sw/fib.hex"), .DATA("sw/fib.data.hex"), .NAME("c_fib")) p11 (.clk(clk), .reset(reset), .both_done(done[11]), .checks(chk[32*11 +: 32]), .errors(err[32*11 +: 32]));
 pair #(.PROGRAM("sw/sort.hex"), .DATA("sw/sort.data.hex"), .NAME("c_sort")) p12 (.clk(clk), .reset(reset), .both_done(done[12]), .checks(chk[32*12 +: 32]), .errors(err[32*12 +: 32]));
 pair #(.PROGRAM("sw/bits.hex"), .DATA("sw/bits.data.hex"), .NAME("c_bits")) p13 (.clk(clk), .reset(reset), .both_done(done[13]), .checks(chk[32*13 +: 32]), .errors(err[32*13 +: 32]));
+pair #(.PROGRAM("tests/unsupported.hex"), .NAME("unsupported")) p14 (.clk(clk), .reset(reset), .both_done(done[14]), .checks(chk[32*14 +: 32]), .errors(err[32*14 +: 32]));
+pair #(.PROGRAM("tests/xpc.hex"), .NAME("xpc")) px (.clk(clk), .reset(reset), .both_done(), .checks(), .errors());
 
 always #5 clk = ~clk;
 
@@ -159,6 +182,8 @@ initial begin
 clk = 0;
 reset = 1;
 edges = -1;
+top_checks = 0;
+top_errors = 0;
 @(posedge clk);
 #1 reset = 0;
 // wait until every pair is done, or until the timeout; looking at falling edges avoids a race with the detectors
@@ -177,6 +202,48 @@ p10.evaluate;
 p11.evaluate;
 p12.evaluate;
 p13.evaluate;
+p14.evaluate;
+// unsupported: the sentinels, worked out by hand, must hold on both cores
+check_value("unsupported ref x1", p14.u_ref.u_regfile.regs[1], 32'd5);
+check_value("unsupported dut x1", p14.u_dut.u_regfile.regs[1], 32'd5);
+check_value("unsupported ref x2", p14.u_ref.u_regfile.regs[2], 32'd7);
+check_value("unsupported dut x2", p14.u_dut.u_regfile.regs[2], 32'd7);
+check_value("unsupported ref x14", p14.u_ref.u_regfile.regs[14], 32'd77);
+check_value("unsupported dut x14", p14.u_dut.u_regfile.regs[14], 32'd77);
+check_value("unsupported ref x15", p14.u_ref.u_regfile.regs[15], 32'd99);
+check_value("unsupported dut x15", p14.u_dut.u_regfile.regs[15], 32'd99);
+check_value("unsupported ref pc", p14.u_ref.pc, 32'h20);
+check_value("unsupported dut pc", p14.dut_spin, 32'h20);
+kr = 0;
+kd = 0;
+for (r = 1; r < 32; r = r + 1)
+if (r != 1 && r != 2 && r != 14 && r != 15) begin
+if ((^p14.u_ref.u_regfile.regs[r]) !== 1'bx) kr = kr + 1;
+if ((^p14.u_dut.u_regfile.regs[r]) !== 1'bx) kd = kd + 1;
+end
+check_value("unsupported ref extra", kr, 0);
+check_value("unsupported dut extra", kd, 0);
+// xpc: the PC is unknown for ever. Neither core may be done, and nothing may be written.
+kr = 0;
+kd = 0;
+mr = 0;
+md = 0;
+for (r = 1; r < 32; r = r + 1) begin
+if ((^px.u_ref.u_regfile.regs[r]) !== 1'bx) kr = kr + 1;
+if ((^px.u_dut.u_regfile.regs[r]) !== 1'bx) kd = kd + 1;
+end
+for (r = 0; r < 1024; r = r + 1) begin
+if ((^px.u_ref.u_dmem.mem[r]) !== 1'bx) mr = mr + 1;
+if ((^px.u_dut.u_dmem.mem[r]) !== 1'bx) md = md + 1;
+end
+check_value("xpc ref not done", px.ref_done, 0);
+check_value("xpc dut not found", px.dut_found, 0);
+check_value("xpc ref pc unknown", (^px.u_ref.pc) === 1'bx, 1);
+check_value("xpc dut pc unknown", (^px.u_dut.pc) === 1'bx, 1);
+check_value("xpc ref regs known", kr, 0);
+check_value("xpc dut regs known", kd, 0);
+check_value("xpc ref words known", mr, 0);
+check_value("xpc dut words known", md, 0);
 #1;
 total_checks = 0;
 total_errors = 0;
@@ -184,6 +251,8 @@ for (k = 0; k < NPAIR; k = k + 1) begin
 total_checks = total_checks + chk[32*k +: 32];
 total_errors = total_errors + err[32*k +: 32];
 end
+total_checks = total_checks + top_checks;
+total_errors = total_errors + top_errors;
 $display("INFO: pipe_vs_single: stopped after %0d edges", edges);
 if (total_errors == 0) $display("PASS: pipe_vs_single, %0d checks, 0 errors", total_checks);
 else $display("FAIL: pipe_vs_single, %0d checks, %0d errors", total_checks, total_errors);
