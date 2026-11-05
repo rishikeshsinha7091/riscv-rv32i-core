@@ -1,10 +1,10 @@
 # RISC-V RV32I Core
 
-A RISC-V RV32I processor core written in Verilog. RV32I is the base 32-bit integer instruction set. The repository holds a single-cycle core and a 5-stage pipelined core. The pipelined core handles data hazards with forwarding, load-use hazards with a one-cycle stall and control hazards with a flush, and it is tested on programs written for those hazards. Running all the older programs on it, and comparing its cycle counts with the single-cycle core, come next.
+A RISC-V RV32I processor core written in Verilog. RV32I is the base 32-bit integer instruction set. The repository holds a single-cycle core and a 5-stage pipelined core. The pipelined core handles data hazards with forwarding, load-use hazards with a one-cycle stall and control hazards with a flush, and it is tested on programs written for those hazards. A second test runs it side by side with the single-cycle core on 20 programs and compares the final state and the cycle counts.
 
 ## Status
 
-Early development. The repository contains a single-cycle core that runs 37 of the 40 instructions of the RV32I base set: everything except `fence`, `ecall` and `ebreak` (see Design notes for why), and a 5-stage pipelined core for the same 37 instructions. Every module has a self-checking testbench. The single-cycle core test runs twelve small assembly programs from `tests/` and four C programs compiled with GCC from `sw/`, and checks their results automatically. The pipelined core has forwarding, a Write-back bypass into Decode, a one-cycle stall for a load followed by its user, and a flush on every taken branch and jump. Its testbench runs a stage test, seven padded copies of the assembly programs and four programs written for hazards (`tests/hazard/`). The results of those programs, and the clock edge at which each one ends, are worked out by hand, and a monitor checks that a stall and a flush never happen in the same cycle. The twelve assembly programs and the four C programs have not been run on the pipelined core as a committed test yet. One command runs all tests. The cycle-count comparison between the two cores and the synthesis results are not done yet.
+Early development. The repository contains a single-cycle core that runs 37 of the 40 instructions of the RV32I base set: everything except `fence`, `ecall` and `ebreak` (see Design notes for why), and a 5-stage pipelined core for the same 37 instructions. Every module has a self-checking testbench. The single-cycle core test runs twelve small assembly programs from `tests/` and four C programs compiled with GCC from `sw/`, and checks their results automatically. The pipelined core has forwarding, a Write-back bypass into Decode, a one-cycle stall for a load followed by its user, and a flush on every taken branch and jump. Its testbench runs a stage test, seven padded copies of the assembly programs and four programs written for hazards (`tests/hazard/`). The results of those programs, and the clock edge at which each one ends, are worked out by hand, and a monitor checks that a stall and a flush never happen in the same cycle. A third testbench, `tb_pipe_vs_single`, runs the twelve assembly programs, the four C programs and the four hazard programs on the pipelined core and on the single-cycle core side by side and compares the final registers, the data memory and the final PC. It also counts the instructions, the stall cycles and the taken jumps of every program, and the cycle counts of both cores are in the section Cycle counts. One command runs all tests. The synthesis results are not done yet.
 
 | Module | Description |
 |---|---|
@@ -31,7 +31,7 @@ Early development. The repository contains a single-cycle core that runs 37 of t
 - `tb/` : self-checking testbenches, named `tb_<module>.v`, and the test data they read (`imem_test.hex`, `dmem_test.hex`, `pipe_stage_test.hex`, `pipe_data_test.hex`)
 - `tests/` : assembly test programs for the core: the source (`.asm`) and the assembled hex file (`.hex`) that the core loads. `tests/pipe/` holds the padded copies for the pipelined core and `tests/hazard/` holds programs written to cause hazards
 - `sw/` : C test programs for the core, the start-up code, the linker script, the build script and the generated hex files
-- `sim/` : run scripts (`run.cmd` for one test, `run_all.ps1` for all of them)
+- `sim/` : run scripts (`run.cmd` for one test, `run_all.ps1` for all of them, `cpi_table.ps1` for the cycle-count table)
 - `docs/` : design log and waveform screenshots
 
 ## Running the tests
@@ -40,6 +40,7 @@ Requires Icarus Verilog (`iverilog` and `vvp`) on the PATH, and Windows PowerShe
 
 - `.\sim\run_all.ps1` runs every testbench in `tb\`, prints one line per test and a summary, and ends with exit code 0 only if everything passed. If the RISC-V toolchain described below is on the PATH, it also rebuilds each C program, checks that the committed hex files match what the source builds to, and checks that every instruction in the program is one of the 37 supported ones. Without the toolchain it prints a `SKIP` line and runs the testbenches only. `.\sim\run_all.ps1 -Strict` counts a missing toolchain as a failure.
 - `sim\run.cmd <module>` runs one test with a module name from the table above, for example `sim\run.cmd alu`. `sim\run.cmd core` runs the single-cycle core on all programs at once, and `sim\run.cmd core_pipe` runs the pipelined core on its stage test and its eleven programs.
+- `sim\run.cmd pipe_vs_single` runs the two cores side by side. A comparison of two cores has no single module under test, so when there is no `rtl\NAME.v` for a testbench `run.cmd` compiles only the testbench. `.\sim\cpi_table.ps1` runs it and prints the cycle-count table (see Cycle counts).
 
 If PowerShell refuses to run the scripts, allow your own scripts for the current user with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. Each test prints PASS or FAIL. Waveforms are written to `sim/` and can be viewed with GTKWave.
 
@@ -108,7 +109,6 @@ What it does not do:
 - A load followed directly by an instruction that reads it costs 1 cycle, including a load followed by a store of the loaded value.
 - The memories read combinationally. Real clocked memories would change the Memory stage and the load latency.
 - Simulation cannot show the clock period. The forwarding muxes lengthen the Execute path; that needs a timing estimate from synthesis.
-- The twelve assembly programs and the four C programs have not been run on it as a committed test yet.
 
 ### Test programs for the pipelined core
 
@@ -139,6 +139,59 @@ The stall cycles are counted by the testbench as well. A pipeline that stalled t
 
 `tb_core_pipe` also contains a stage test. It is a hand-encoded program of 11 instructions (`tb/pipe_stage_test.hex`) whose decoded fields, ALU results, memory accesses and register writes are checked in every pipeline register after every clock edge. The registers are preloaded by the testbench, because the stage test was written before Write-back existed. It contains a taken `jal` near the end, and the test expects the bubble that the flush puts into ID/EX behind it.
 
+## Verification of the pipelined core against the single-cycle core
+
+`tb/tb_pipe_vs_single.v` runs 20 programs on two cores at once: the single-cycle `core`, used as the reference, and `core_pipe`. The programs are the twelve assembly programs, the four C programs and the four hazard programs. For 19 of them (all except `xpc`) the test waits until both cores are done (the single-cycle PC unchanged for 4 edges, the pipeline's spin found in Execute plus 4 edges) and then makes six checks:
+
+- the single-cycle core is done and the pipelined core is done (a core that is not done after 2000 edges is a failure, never a silent pass),
+- at least one of the registers x1 to x31 of the reference is known (a run in which nothing happened cannot pass),
+- both cores ended at the same spin address,
+- registers x1 to x31 are identical,
+- all 1024 data memory words are identical.
+
+Every comparison uses `!==`, so an unknown value is different from a known one. Two programs get more:
+
+- `unsupported` (`mul`, `fence`, `ecall` and `ebreak` inside a program) also has hand-worked values on both cores: x1 = 5, x2 = 7, x14 = 77 (so `mul` changed nothing), x15 = 99, the final PC, and no other register written.
+- `xpc` (a `jalr` through a register that was never written) is not compared. Neither core may be done, the PC must stay unknown on both, and no register or data word may become known.
+
+The whole testbench makes 209 checks, including the cycle checks of the next section.
+
+What this shows, and what it does not:
+
+- For these 20 programs the pipelined core ends in the same state as the single-cycle core. It does not look at the values in between and it does not look at time (the cycle counts below do).
+- Both cores are built from the same `alu`, `regfile`, `control`, `immgen`, `imem`, `dmem`, `store_align`, `load_align` and `pc_reg`. A bug in one of those is in both cores, and the comparison cannot see it. Those modules are checked by their own testbenches and by the hand-worked expected values in `tb_core`. The comparison finds bugs that exist only in the pipeline: the pipeline registers, forwarding, the bypass, the stall, the flush and the wiring.
+- A bug is found only if a program makes its effect last until the end.
+- To check that the test can fail, the design was broken on purpose. Removing the load-use stall made three programs differ (`checksum`, `c_first`, `c_sort`). Removing the forwarding from Write-back for the first ALU operand made six programs fail, and three of them (`loop_sum`, `c_sort`, `c_bits`) never reached their spin, which only the done check reports. Breaking `sra` in the shared ALU did not fail the comparison at all; only `tb_alu` and `tb_core` failed.
+- Random or constrained-random programs have not been run.
+
+## Cycle counts
+
+Cycles are counted from the reset edge (edge 0) to the edge that ends the first cycle in which the spin executes. For the single-cycle core that is N + 1, where N is the number of instructions executed before the spin. For the pipelined core it is N + 3 + S + 2R: 3 for filling the pipeline, S load-use stall cycles and R taken branches and jumps at 2 cycles each. N is measured on the single-cycle core, where one cycle is one instruction. S and R are counted by monitors in the testbench. The testbench checks this equation for every program, and for 14 of the 19 programs it also checks N, S, R and the cycle count against numbers worked out by hand from the assembly (the hand-traced values of the four hazard programs agree with the ending edges in the table of hazard programs above). For the other five (`checksum` and the four C programs) only the equation is checked. CPI is cycles divided by N. The extra cycles of the pipeline over N are split into fill, stalls and flushes.
+
+The four C programs (built with `-O1`):
+
+| Program | N | Single-cycle cycles | Pipeline cycles | CPI single | CPI pipeline | Extra cycles (fill + stalls + flushes) |
+|---|---|---|---|---|---|---|
+| `first` | 20 | 21 | 32 | 1.050 | 1.600 | 3 + 1 + 8 |
+| `fib` | 124 | 125 | 172 | 1.008 | 1.387 | 3 + 1 + 44 |
+| `sort` | 259 | 260 | 386 | 1.004 | 1.490 | 3 + 28 + 96 |
+| `bits` | 188 | 189 | 273 | 1.005 | 1.452 | 3 + 0 + 82 |
+| Total | 591 | 595 | 863 | 1.007 | 1.460 | 12 + 30 + 230 |
+
+`.\sim\cpi_table.ps1` runs the testbench and prints this table for all 19 programs, grouped as C programs, assembly programs and hazard programs. It refuses to print if the testbench did not pass or if a row breaks the equation. The eleven assembly programs together take 272 cycles on the single-cycle core and 368 on the pipelined core for 261 instructions, and the four hazard programs 136 and 169 for 132 instructions.
+
+Reading the numbers:
+
+- On the C programs the pipelined core needs about 1.45 times as many cycles as the single-cycle core.
+- 230 of its 272 extra cycles (about 85 percent) are the flushes after taken branches and jumps: 115 of the 591 instructions are taken jumps and each costs 2 cycles, because there is no branch prediction. Load-use stalls cost 30 cycles, almost all of them in `sort`, and the fill costs 12. Forwarding and the Write-back bypass cost no cycles.
+- Small programs overstate the fill: the 7-instruction `jal_ops` has a pipeline CPI of 2.571.
+
+What the table does not say:
+
+- CPI counts cycles, not time. Time is instructions x CPI x clock period, and the clock periods are not known: simulation has no gate delays. With these totals the pipelined core is faster only if its clock period is below about 0.69 of the single-cycle core's (595 / 863). That is not measured here, so the table does not say which core is faster.
+- The programs are small, and the C programs were built at `-O1` only; other optimisation levels give other code and other stall counts. The assembly programs were written to test one thing each and the hazard programs to stress the hazard logic, so they are not typical code.
+- Both memories read combinationally, so loads and stores cost no extra time. A real clocked memory would raise the CPI of both cores.
+
 ## Design notes
 
 - The memories are behavioural models with a combinational read: the data is available in the same cycle as the address. Real SRAM usually has a clocked read, so this is a simplification that suits a single-cycle core. The pipelined core keeps these memories. A real pipeline would use clocked memories and arrange its Fetch and Memory stages differently.
@@ -163,8 +216,7 @@ The stall cycles are counted by the testbench as well. A pipeline that stalled t
 
 ## Planned
 
-- Run the twelve assembly programs and the four C programs on the pipelined core as a committed test, and compare the cycle counts of both cores on the same programs
-- Area results from synthesis with Yosys
+- Area results from synthesis with Yosys, and an estimate of the clock period of both cores, which the cycle counts cannot give
 
 ## Tools
 
