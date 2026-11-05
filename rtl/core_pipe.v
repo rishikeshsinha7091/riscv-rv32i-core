@@ -9,6 +9,7 @@ input reset
 `include "result_codes.vh"
 `include "fwd_codes.vh"
 wire stall;
+wire redirect;
 
 // ---- Fetch stage ----
 wire [31:0] pc;
@@ -28,7 +29,7 @@ wire [31:0] id_pc;
 wire [31:0] id_pc_plus4;
 wire [31:0] id_inst;
 
-pipe_reg #(.WIDTH(96)) u_if_id (.clk(clk), .reset(reset), .en(~stall), .flush(1'b0), .d({pc, pc_plus4, if_inst}), .q(if_id_q));
+pipe_reg #(.WIDTH(96)) u_if_id (.clk(clk), .reset(reset), .en(~stall), .flush(redirect), .d({pc, pc_plus4, if_inst}), .q(if_id_q));
 
 assign {id_pc, id_pc_plus4, id_inst} = if_id_q;
 
@@ -92,7 +93,7 @@ wire ex_br_inv;
 wire ex_alu_src;
 wire [3:0] ex_alu_op;
 
-pipe_reg #(.WIDTH(193)) u_id_ex (.clk(clk), .reset(reset), .en(1'b1), .flush(stall),
+pipe_reg #(.WIDTH(193)) u_id_ex (.clk(clk), .reset(reset), .en(1'b1), .flush(stall | redirect),
 .d({id_pc, id_pc_plus4, id_src1, id_src2, id_imm, id_inst[11:7], id_inst[19:15], id_inst[24:20], id_reg_write, id_result_src, id_mem_write, id_mem_size, id_load_unsigned, id_branch, id_jump, id_jalr, id_br_lt, id_br_inv, id_alu_src, id_alu_op}),
 .q(id_ex_q));
 
@@ -127,6 +128,7 @@ assign ex_taken = (ex_br_lt ? ex_alu_y[0] : ex_zero) ^ ex_br_inv;
 assign ex_pc_src = (ex_branch & ex_taken) | ex_jump;
 assign ex_jalr_target = {ex_alu_y[31:1], 1'b0};
 assign next_pc = ex_jalr ? ex_jalr_target : (ex_pc_src ? ex_pc_target : pc_plus4);
+assign redirect = ex_pc_src | ex_jalr;
 
 always @(*) begin
 case (ex_result_src)
@@ -155,7 +157,7 @@ pipe_reg #(.WIDTH(77)) u_ex_mem (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b
 assign {mm_result, mm_store_src, mm_rd, mm_reg_write, mm_result_src, mm_mem_write, mm_mem_size, mm_load_unsigned} = ex_mem_q;
 
 // ---- Forwarding: the two Execute operands (ALU a and b, store data, branch and jalr operands all use these) ----
-// A load in EX/MEM has its address in mm_result, so a load followed by its user needs the stall (a later build).
+// A load in EX/MEM has its address in mm_result, so a load followed by its user needs the stall (u_hazard).
 fwd_unit u_fwd (.ex_rs1(ex_rs1), .ex_rs2(ex_rs2), .mm_rd(mm_rd), .mm_reg_write(mm_reg_write), .wb_rd(wb_rd), .wb_reg_write(wb_reg_write), .fwd_a(ex_fwd_a), .fwd_b(ex_fwd_b));
 
 assign ex_src1 = (ex_fwd_a == FWD_MEM) ? mm_result : ((ex_fwd_a == FWD_WB) ? wb_data : ex_rdata1);

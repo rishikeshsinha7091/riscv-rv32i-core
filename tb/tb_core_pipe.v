@@ -255,6 +255,7 @@ check(e, "next_pc", dut.next_pc, exp_next);
 check(e, "ex_pc_src", dut.ex_pc_src, exp_src);
 if (e <= 11) check_ifid(e, 4*(e-1), 4*e, t_word[e-1]);
 if (e == 1) check_idex(e, 32'd0, 32'd0, 32'd0, 32'd0, 32'd0, 5'd0, 18'd0);
+else if (e == 12) check_idex(e, 32'd0, 32'd0, t_r1[e-2], t_r2[e-2], t_imm[e-2], t_rd[e-2], t_ctrl[e-2]);
 else check_idex(e, 4*(e-2), 4*(e-1), t_r1[e-2], t_r2[e-2], t_imm[e-2], t_rd[e-2], t_ctrl[e-2]);
 if (e == 1) begin
 check(e, "ex_rs1", dut.ex_rs1, 5'd0);
