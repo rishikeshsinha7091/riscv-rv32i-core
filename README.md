@@ -1,10 +1,10 @@
 # RISC-V RV32I Core
 
-A RISC-V RV32I processor core written in Verilog. RV32I is the base 32-bit integer instruction set. The repository holds a single-cycle core and a 5-stage pipelined core. The pipelined core does not handle hazards yet, so it runs only specially prepared programs.
+A RISC-V RV32I processor core written in Verilog. RV32I is the base 32-bit integer instruction set. The repository holds a single-cycle core and a 5-stage pipelined core. The pipelined core handles data hazards with forwarding, load-use hazards with a one-cycle stall and control hazards with a flush, and it is tested on programs written for those hazards. Running all the older programs on it, and comparing its cycle counts with the single-cycle core, come next.
 
 ## Status
 
-Early development. The repository contains a single-cycle core that runs 37 of the 40 instructions of the RV32I base set: everything except `fence`, `ecall` and `ebreak` (see Design notes for why), and a 5-stage pipelined core for the same 37 instructions. Every module has a self-checking testbench. The single-cycle core test runs twelve small assembly programs from `tests/` and four C programs compiled with GCC from `sw/`, and checks their results automatically. The pipelined core has no forwarding, no stalls and no flushes yet. It runs seven hazard-free copies of the assembly programs (`tests/pipe/`) correctly, but it gives wrong results on programs that read a register right after it is written or that have no `nop`s behind a jump, so it does not run the C programs. One command runs all tests. Hazard handling, a cycle-count comparison between the two cores and the synthesis results are not done yet.
+Early development. The repository contains a single-cycle core that runs 37 of the 40 instructions of the RV32I base set: everything except `fence`, `ecall` and `ebreak` (see Design notes for why), and a 5-stage pipelined core for the same 37 instructions. Every module has a self-checking testbench. The single-cycle core test runs twelve small assembly programs from `tests/` and four C programs compiled with GCC from `sw/`, and checks their results automatically. The pipelined core has forwarding, a Write-back bypass into Decode, a one-cycle stall for a load followed by its user, and a flush on every taken branch and jump. Its testbench runs a stage test, seven padded copies of the assembly programs and four programs written for hazards (`tests/hazard/`). The results of those programs, and the clock edge at which each one ends, are worked out by hand, and a monitor checks that a stall and a flush never happen in the same cycle. The twelve assembly programs and the four C programs have not been run on the pipelined core as a committed test yet. One command runs all tests. The cycle-count comparison between the two cores and the synthesis results are not done yet.
 
 | Module | Description |
 |---|---|
@@ -12,7 +12,7 @@ Early development. The repository contains a single-cycle core that runs 37 of t
 | `dff_sync_reset` | D flip-flop with synchronous reset |
 | `alu` | 32-bit ALU: add, sub, and, or, xor, sll, srl, sra, slt, sltu, plus a zero flag |
 | `regfile` | 32 x 32-bit register file: two read ports, one write port, x0 always reads 0 |
-| `pc_reg` | 32-bit program counter register with synchronous reset and a PC + 4 output |
+| `pc_reg` | 32-bit program counter register with synchronous reset, an enable input (low holds the value, reset wins) and a PC + 4 output |
 | `immgen` | Immediate generator: rebuilds the 32-bit constant from the I, S, B, U or J instruction format, with sign extension |
 | `imem` | Instruction memory: 1024 x 32-bit words, read-only, combinational read, loaded from a hex file |
 | `dmem` | Data memory: 1024 x 32-bit words, combinational read, clocked write with a 4-bit byte enable (one bit per byte lane). The parameter `INIT_FILE` can preload it from a hex file; by default nothing is loaded |
@@ -20,14 +20,16 @@ Early development. The repository contains a single-cycle core that runs 37 of t
 | `load_align` | Load alignment: picks the byte or half-word out of the memory word and sign- or zero-extends it, for lb, lh, lw, lbu and lhu |
 | `control` | Control unit: turns opcode, funct3 and funct7 into the 13 control outputs for the 37 supported instructions. Any other instruction gives all-zero outputs |
 | `core` | Single-cycle core for the 37 supported instructions. Connects the modules above, adds a branch target adder, the branch decision, the jalr target and the next-PC logic. The parameter `PROGRAM` names the hex file loaded into the instruction memory, and `DATA` names an optional hex file loaded into the data memory |
-| `pipe_reg` | Pipeline register: a row of D flip-flops of any width with a synchronous reset, a flush input that clears it to zeros (a bubble) and an enable input that holds its value. The pipelined core ties the enable to 1 and the flush to 0 for now |
-| `core_pipe` | 5-stage pipelined core for the same 37 instructions: Fetch, Decode, Execute, Memory and Write-back, separated by four `pipe_reg` registers. It reuses `pc_reg`, `imem`, `control`, `regfile`, `immgen`, `alu`, `store_align`, `dmem` and `load_align` unchanged and has the same parameters `PROGRAM` and `DATA` as `core`. No hazard handling |
+| `pipe_reg` | Pipeline register: a row of D flip-flops of any width with a synchronous reset, a flush input that clears it to zeros (a bubble) and an enable input that holds its value. If flush and enable are both active, the flush wins |
+| `fwd_unit` | Forwarding unit: for the two source registers of the instruction in Execute, decides whether the value comes from the register read in Decode, from the EX/MEM result or from the MEM/WB data. A source qualifies only if that instruction writes a register other than x0 and its destination equals the source number. EX/MEM, the newer instruction, has priority |
+| `hazard_unit` | Load-use detector: asks for a one-cycle stall when the instruction in Execute is a load whose destination is a register that the instruction in Decode really reads. Which registers an instruction reads is decided from its opcode, so an instruction whose immediate bits look like a register number does not stall |
+| `core_pipe` | 5-stage pipelined core for the same 37 instructions: Fetch, Decode, Execute, Memory and Write-back, separated by four `pipe_reg` registers. It reuses `imem`, `control`, `regfile`, `immgen`, `alu`, `store_align`, `dmem` and `load_align` unchanged and `pc_reg` with its enable input, and has the same parameters `PROGRAM` and `DATA` as `core`. It adds `fwd_unit` and `hazard_unit` and handles data, load-use and control hazards |
 
 ## Repository layout
 
 - `rtl/` : design files (synthesizable Verilog) and the shared code headers (`*.vh`)
 - `tb/` : self-checking testbenches, named `tb_<module>.v`, and the test data they read (`imem_test.hex`, `dmem_test.hex`, `pipe_stage_test.hex`, `pipe_data_test.hex`)
-- `tests/` : assembly test programs for the core: the source (`.asm`) and the assembled hex file (`.hex`) that the core loads. `tests/pipe/` holds the hazard-free copies for the pipelined core
+- `tests/` : assembly test programs for the core: the source (`.asm`) and the assembled hex file (`.hex`) that the core loads. `tests/pipe/` holds the padded copies for the pipelined core and `tests/hazard/` holds programs written to cause hazards
 - `sw/` : C test programs for the core, the start-up code, the linker script, the build script and the generated hex files
 - `sim/` : run scripts (`run.cmd` for one test, `run_all.ps1` for all of them)
 - `docs/` : design log and waveform screenshots
@@ -37,7 +39,7 @@ Early development. The repository contains a single-cycle core that runs 37 of t
 Requires Icarus Verilog (`iverilog` and `vvp`) on the PATH, and Windows PowerShell. From the repository root:
 
 - `.\sim\run_all.ps1` runs every testbench in `tb\`, prints one line per test and a summary, and ends with exit code 0 only if everything passed. If the RISC-V toolchain described below is on the PATH, it also rebuilds each C program, checks that the committed hex files match what the source builds to, and checks that every instruction in the program is one of the 37 supported ones. Without the toolchain it prints a `SKIP` line and runs the testbenches only. `.\sim\run_all.ps1 -Strict` counts a missing toolchain as a failure.
-- `sim\run.cmd <module>` runs one test with a module name from the table above, for example `sim\run.cmd alu`. `sim\run.cmd core` runs the single-cycle core on all programs at once, and `sim\run.cmd core_pipe` runs the pipelined core on its seven programs and its stage test.
+- `sim\run.cmd <module>` runs one test with a module name from the table above, for example `sim\run.cmd alu`. `sim\run.cmd core` runs the single-cycle core on all programs at once, and `sim\run.cmd core_pipe` runs the pipelined core on its stage test and its eleven programs.
 
 If PowerShell refuses to run the scripts, allow your own scripts for the current user with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. Each test prints PASS or FAIL. Waveforms are written to `sim/` and can be viewed with GTKWave.
 
@@ -82,26 +84,37 @@ The expected results are worked out by hand, not taken from the core. The testbe
 | Stage | What it contains |
 |---|---|
 | Fetch | `pc_reg`, `imem` and the next-PC mux (its select signals come from Execute) |
-| Decode | `control`, the read ports of `regfile` and `immgen` |
-| Execute | the ALU, the branch target adder, the branch and jump decision, the `jalr` target, and a mux that merges `pc + 4`, the immediate and `pc + imm` with the ALU result into one value |
+| Decode | `control`, the read ports of `regfile`, `immgen`, the Write-back bypass and `hazard_unit` |
+| Execute | the ALU, the two forwarding muxes (selected by `fwd_unit`), the branch target adder, the branch and jump decision, the `jalr` target, and a mux that merges `pc + 4`, the immediate and `pc + imm` with the ALU result into one value |
 | Memory | `store_align`, `dmem` and `load_align` |
 | Write-back | a choice between the loaded value and the result, and the write port of `regfile` |
 
-The four registers are IF/ID (96 bits), ID/EX (183), EX/MEM (77) and MEM/WB (73), 429 flip-flops in total, all instances of `pipe_reg`. The control signals are decoded once in Decode and travel through the registers with their instruction, each one only as far as the stage that uses it.
+The four registers are IF/ID (96 bits), ID/EX (193), EX/MEM (77) and MEM/WB (73), 439 flip-flops in total, all instances of `pipe_reg`. The control signals are decoded once in Decode and travel through the registers with their instruction, each one only as far as the stage that uses it. ID/EX also carries the two source register numbers of its instruction, because the forwarding comparison happens in Execute.
 
-What it cannot do yet, and why:
+### Hazard handling
 
-- A register written by one instruction cannot be used by any of the next 3 instructions. The register file is written at the clock edge and read without a clock, so a read in the same cycle as a write gets the old value, and the new value is still travelling through the pipeline registers.
-- A branch or jump is decided in Execute, two fetches after it. The two instructions behind a taken branch or jump have already been fetched, and nothing throws them away, so they run.
-- A load followed directly by an instruction that uses its result has the same problem.
+**Data hazards.** An instruction that reads a register written by an instruction just ahead of it would read the old value, because the register file is written at the clock edge and read without a clock. The value is already inside the pipeline, so it is taken from there:
 
-Forwarding, stalls and flushes (hazard handling) are planned. Until then, programs need padding.
+- One instruction ahead, the result is in EX/MEM. Two ahead, it is in MEM/WB. `fwd_unit` compares the two source register numbers of the instruction in Execute with the destinations of those two, and two 3-input muxes right after ID/EX pick the value. The same two values feed the ALU, the data of a store, the branch comparison and the `jalr` base. When both instructions match, EX/MEM wins, because it is the newer one. A write to x0, and an instruction that writes no register, is never forwarded.
+- Three instructions ahead, the value is being written to the register file in the same cycle in which the reader is in Decode, and the read still gets the old value. The pipeline passes the Write-back value into Decode in that case. This is done in `core_pipe`: `regfile` is unchanged, because a bypass inside `regfile` would make an instruction that reads and writes the same register read its own result in the single-cycle core.
+
+**Load-use hazard.** The data of a load comes out of the data memory in the Memory stage, one stage too late to be forwarded to the next instruction. When the instruction in Execute is a load and the instruction in Decode really reads its destination register (including a store of the loaded value), `hazard_unit` asks for a stall: the PC and IF/ID hold for one cycle and a bubble enters ID/EX. After that cycle the load is in Write-back and its data is forwarded. The cost is one cycle, only for a load whose very next instruction uses it.
+
+**Control hazards.** A branch or jump is decided in Execute, and the core always fetches ahead as if the branch were not taken. When a branch is taken, and for every `jal` and `jalr`, the two instructions behind it (one in Fetch, one in Decode) are turned into bubbles by flushing IF/ID and ID/EX. The branch or jump itself is not flushed, so the link register of `jal` and `jalr` is still written. The cost is 2 cycles for every taken branch and jump. A stall and a flush cannot happen in the same cycle, because a load and a branch cannot both be in Execute; the testbench monitors this.
+
+What it does not do:
+
+- There is no branch prediction, so every taken branch and jump costs 2 cycles.
+- A load followed directly by an instruction that reads it costs 1 cycle, including a load followed by a store of the loaded value.
+- The memories read combinationally. Real clocked memories would change the Memory stage and the load latency.
+- Simulation cannot show the clock period. The forwarding muxes lengthen the Execute path; that needs a timing estimate from synthesis.
+- The twelve assembly programs and the four C programs have not been run on it as a committed test yet.
 
 ### Test programs for the pipelined core
 
-`tests/pipe/` holds copies of `alu_full`, `mem_ops`, `byte_ops`, `branch_all`, `jal_ops`, `loop_sum` and `upper_jalr`: the same instructions in the same order, with only `nop`s added, so that a register is read at least 4 instructions after it was written and two `nop`s follow every branch and jump. Padding moves instructions, so the values that depend on addresses differ from the single-cycle versions: the spin address, `x6` of `jal_ops`, the `auipc` and link values of `upper_jalr`, and the `jalr` offset there (33 instead of 13, still odd).
+The testbench `tb_core_pipe` runs the stage test and eleven programs on one clock and reset. A program is done when the instruction in Execute is a jump to its own address (the spin loop). The testbench then waits 4 more edges for the older instructions to finish, and checks the registers, the memory and the spin address. It also checks the clock edge at which the spin was found, a number worked out by hand: the number of instructions fetched before the spin (counting the two wrong-path instructions behind every taken jump) plus 3, plus one for every stall cycle. The rule of the single-cycle testbench, a PC that has not changed for 4 edges, would never fire on a pipeline: the fetch PC runs on past the spin and is sent back, so it cycles through three addresses. Registers that a program must never write (because the instruction that writes them is wrong-path or skipped) are checked to be still unknown.
 
-The testbench `tb_core_pipe` runs all seven on one clock and reset. A program is done when the instruction in Execute is a jump to its own address (the spin loop). The testbench then waits 4 more edges for the older instructions to finish, and checks the registers, the memory and the spin address. It also checks the clock edge at which the spin was found, a number worked out by hand: the number of instructions fetched before the spin (counting the two wrong-path `nop`s behind every taken jump) plus 3. The rule of the single-cycle testbench, a PC that has not changed for 4 edges, would never fire on a pipeline: the fetch PC runs on past the spin and is sent back, so it cycles through three addresses.
+`tests/pipe/` holds copies of `alu_full`, `mem_ops`, `byte_ops`, `branch_all`, `jal_ops`, `loop_sum` and `upper_jalr`: the same instructions in the same order, with only `nop`s added, so that a register is read at least 4 instructions after it was written and two `nop`s follow every branch and jump. They were written for the first pipeline, which had no hazard handling. They still pass, with the same results and the same ending edges, which shows that the hazard logic changes nothing for programs without hazards. Padding moves instructions, so the values that depend on addresses differ from the single-cycle versions: the spin address, `x6` of `jal_ops`, the `auipc` and link values of `upper_jalr`, and the `jalr` offset there (33 instead of 13, still odd).
 
 | Program | Spin address | Spin found at edge |
 |---|---|---|
@@ -113,7 +126,18 @@ The testbench `tb_core_pipe` runs all seven on one clock and reset. A program is
 | `loop_sum` | 48 | 50 |
 | `upper_jalr` | 116 | 37 |
 
-`tb_core_pipe` also contains a stage test. It is a hand-encoded program of 11 instructions (`tb/pipe_stage_test.hex`) whose decoded fields, ALU results, memory accesses and register writes are checked in every pipeline register after every clock edge. The registers are preloaded by the testbench, because the stage test was written before Write-back existed.
+`tests/hazard/` holds four programs written to cause hazards, with no `nop`s for data hazards:
+
+| Program | What it checks | Spin address | Spin found at edge | Stall cycles |
+|---|---|---|---|---|
+| `hazard_alu` | forwarding at distances 1 and 2 on both operands, two writers of one register (the newer wins), a write to x0, the data of a store, an `addi` whose immediate bits look like the register written just before, branches and a `jalr` on a register written one instruction earlier | 168 | 43 | 0 |
+| `bypass_d3` | reads three instructions after the write (`rs1`, `rs2`, store data, a load result), x0 after a write to x0, a store whose `rd` bits look like a register, and one instruction that needs the bypass on one operand and forwarding on the other | 160 | 43 | 0 |
+| `load_use` | a load followed by its user on `rs1`, on `rs2`, as store data, in a branch and in a pointer chase; and two pairs that must not stall (one instruction in between, and an `addi` whose immediate looks like the load's destination) | 112 | 36 | 6 |
+| `flush_ctl` | taken and not-taken branches, `jal`, `jalr`, a loop and a load followed by a branch, with a register write and a memory write right behind every taken jump that must have no effect; nothing is padded and no instruction follows the spin | 156 | 47 | 1 |
+
+The stall cycles are counted by the testbench as well. A pipeline that stalled too often, or not at all in the right place, can give correct values with a wrong cycle count, or the other way round.
+
+`tb_core_pipe` also contains a stage test. It is a hand-encoded program of 11 instructions (`tb/pipe_stage_test.hex`) whose decoded fields, ALU results, memory accesses and register writes are checked in every pipeline register after every clock edge. The registers are preloaded by the testbench, because the stage test was written before Write-back existed. It contains a taken `jal` near the end, and the test expects the bubble that the flush puts into ID/EX behind it.
 
 ## Design notes
 
@@ -132,14 +156,14 @@ The testbench `tb_core_pipe` runs all seven on one clock and reset. A program is
 - The runner passes a test only if it ended normally, printed exactly one line starting with `PASS:` and no line starting with `FAIL:`. A compile error, a crash or a silent test is therefore a failure. The oldest testbenches word their PASS line differently from the newer ones, and the runner accepts both.
 - The assembly programs are assembled with RARS. The shared operation, select, result and size codes are in the `.vh` header files in `rtl/`.
 - In the pipelined core the five-input result mux of the single-cycle core is split: Execute merges `pc + 4`, the immediate and `pc + imm` with the ALU result into one value, and Write-back only chooses between that value and the loaded one. This saves about 190 flip-flops in the registers and costs one mux delay in Execute. The branch decision and the `jalr` target use the ALU result directly. The data a store writes is the raw value of rs2, not the ALU's second input, which is the offset.
-- `pipe_reg` has an enable input (a stall holds the value) and a flush input (it clears the register), both prepared for hazard handling and unused so far. If both are active the flush wins, so a thrown-away instruction cannot be held in place.
-- In the pipelined core the loaded value that reaches Write-back is unknown (`x`) for every instruction that is not a load, because the Memory stage reads the data memory for every instruction. It is never used for them.
+- `pipe_reg` has an enable input (a stall holds the value) and a flush input (it clears the register). If both are active the flush wins, so a thrown-away instruction cannot be held in place, and reset wins over both. In `core_pipe` a stall holds the PC and IF/ID and flushes ID/EX, and a taken jump flushes IF/ID and ID/EX. `pc_reg` has an enable for the same reason; the single-cycle core ties it to 1.
+- In the pipelined core the loaded value that reaches Write-back is unknown (`x`) for every instruction that is not a load, because the Memory stage reads the data memory for every instruction. It is never used for them, and a forwarded value always comes from `wb_data`, which chooses the loaded value only for a load. For a load in EX/MEM the result register holds the address, not the data, which is why a load followed by its user is stalled and never forwarded from EX/MEM.
+- The forwarding unit only compares register numbers. It does not check whether the instruction really reads them, so an `addi` whose immediate bits equal the register written just before gets a forwarded value on an operand it ignores. That is harmless because the forwarding muxes sit before the ALU's `alu_src` mux and the immediate wins. The stall logic is precise: it decides from the opcode which registers an instruction reads, because a false stall would cost a cycle. The six opcode values it uses are also in `control`, so they exist in two places.
 - Simulation shows that the pipelined core is correct on its programs and how many clock edges they take. It cannot show that the clock period is shorter than that of the single-cycle core, because every gate has zero delay in Icarus. That needs a timing estimate from synthesis, and the README will say so when it exists.
 
 ## Planned
 
-- Hazard handling for the pipelined core: forwarding, stalls and flushes, so that the original programs and the C programs run on it
-- Cycle counts of both cores compared on the same programs
+- Run the twelve assembly programs and the four C programs on the pipelined core as a committed test, and compare the cycle counts of both cores on the same programs
 - Area results from synthesis with Yosys
 
 ## Tools
