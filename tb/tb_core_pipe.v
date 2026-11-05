@@ -28,6 +28,18 @@ integer lu_stalls;
 initial lu_stalls = 0;
 always @(posedge clk) if (u_load_use.stall === 1'b1) lu_stalls = lu_stalls + 1;
 
+core_pipe #(.PROGRAM("tests/hazard/flush_ctl.hex")) u_flush_ctl (.clk(clk), .reset(reset));
+
+integer fc_stalls;
+initial fc_stalls = 0;
+always @(posedge clk) if (u_flush_ctl.stall === 1'b1) fc_stalls = fc_stalls + 1;
+
+// monitor: a stall and a redirect must never be requested in the same cycle, in any instance
+wire [11:0] both = {dut.stall & dut.redirect, u_alu_full.stall & u_alu_full.redirect, u_mem_ops.stall & u_mem_ops.redirect, u_byte_ops.stall & u_byte_ops.redirect, u_branch_all.stall & u_branch_all.redirect, u_jal_ops.stall & u_jal_ops.redirect, u_loop_sum.stall & u_loop_sum.redirect, u_upper_jalr.stall & u_upper_jalr.redirect, u_hazard_alu.stall & u_hazard_alu.redirect, u_bypass_d3.stall & u_bypass_d3.redirect, u_load_use.stall & u_load_use.redirect, u_flush_ctl.stall & u_flush_ctl.redirect};
+integer sf_hits;
+initial sf_hits = 0;
+always @(posedge clk) if ((|both) === 1'b1) sf_hits = sf_hits + 1;
+
 always #5 clk = ~clk;
 
 // expected values for the 11 words of tb/pipe_stage_test.hex
@@ -62,15 +74,15 @@ end
 endtask
 
 // ---- done detection: the spin jal in Execute jumps to itself, then wait for the pipeline to drain ----
-localparam NP = 10;
+localparam NP = 11;
 localparam DRAIN = 4;
 localparam TIMEOUT = 20000;
 localparam [NP-1:0] ALL = {NP{1'b1}};
 
-// index 0 = alu_full, 1 = mem_ops, 2 = byte_ops, 3 = branch_all, 4 = jal_ops, 5 = loop_sum, 6 = upper_jalr, 7 = hazard_alu, 8 = bypass_d3, 9 = load_use
-wire [NP-1:0] srcs = {u_load_use.ex_pc_src, u_bypass_d3.ex_pc_src, u_hazard_alu.ex_pc_src, u_upper_jalr.ex_pc_src, u_loop_sum.ex_pc_src, u_jal_ops.ex_pc_src, u_branch_all.ex_pc_src, u_byte_ops.ex_pc_src, u_mem_ops.ex_pc_src, u_alu_full.ex_pc_src};
-wire [32*NP-1:0] xpcs = {u_load_use.ex_pc, u_bypass_d3.ex_pc, u_hazard_alu.ex_pc, u_upper_jalr.ex_pc, u_loop_sum.ex_pc, u_jal_ops.ex_pc, u_branch_all.ex_pc, u_byte_ops.ex_pc, u_mem_ops.ex_pc, u_alu_full.ex_pc};
-wire [32*NP-1:0] nexts = {u_load_use.next_pc, u_bypass_d3.next_pc, u_hazard_alu.next_pc, u_upper_jalr.next_pc, u_loop_sum.next_pc, u_jal_ops.next_pc, u_branch_all.next_pc, u_byte_ops.next_pc, u_mem_ops.next_pc, u_alu_full.next_pc};
+// index 0 = alu_full, 1 = mem_ops, 2 = byte_ops, 3 = branch_all, 4 = jal_ops, 5 = loop_sum, 6 = upper_jalr, 7 = hazard_alu, 8 = bypass_d3, 9 = load_use, 10 = flush_ctl
+wire [NP-1:0] srcs = {u_flush_ctl.ex_pc_src, u_load_use.ex_pc_src, u_bypass_d3.ex_pc_src, u_hazard_alu.ex_pc_src, u_upper_jalr.ex_pc_src, u_loop_sum.ex_pc_src, u_jal_ops.ex_pc_src, u_branch_all.ex_pc_src, u_byte_ops.ex_pc_src, u_mem_ops.ex_pc_src, u_alu_full.ex_pc_src};
+wire [32*NP-1:0] xpcs = {u_flush_ctl.ex_pc, u_load_use.ex_pc, u_bypass_d3.ex_pc, u_hazard_alu.ex_pc, u_upper_jalr.ex_pc, u_loop_sum.ex_pc, u_jal_ops.ex_pc, u_branch_all.ex_pc, u_byte_ops.ex_pc, u_mem_ops.ex_pc, u_alu_full.ex_pc};
+wire [32*NP-1:0] nexts = {u_flush_ctl.next_pc, u_load_use.next_pc, u_bypass_d3.next_pc, u_hazard_alu.next_pc, u_upper_jalr.next_pc, u_loop_sum.next_pc, u_jal_ops.next_pc, u_branch_all.next_pc, u_byte_ops.next_pc, u_mem_ops.next_pc, u_alu_full.next_pc};
 
 integer edges;
 integer j;
@@ -327,6 +339,7 @@ $display("INFO: upper_jalr: spin found at edge %0d", found_at[6]);
 $display("INFO: hazard_alu: spin found at edge %0d", found_at[7]);
 $display("INFO: bypass_d3: spin found at edge %0d", found_at[8]);
 $display("INFO: load_use: spin found at edge %0d", found_at[9]);
+$display("INFO: flush_ctl: spin found at edge %0d", found_at[10]);
 
 // alu_full: spin address 96
 check_value("alu_full done", done[0], 1);
@@ -541,6 +554,43 @@ check_value("load_use mem64", u_load_use.u_dmem.mem[64], 32'd100);
 check_value("load_use mem65", u_load_use.u_dmem.mem[65], 32'd200);
 check_value("load_use mem66", u_load_use.u_dmem.mem[66], 32'd100);
 check_value("load_use mem67", u_load_use.u_dmem.mem[67], 32'h00002108);
+
+// flush_ctl: spin address 156; the poisoned registers and memory words must stay unwritten
+check_value("flush_ctl done", done[10], 1);
+check_value("flush_ctl spin", spin_pc[10], 156);
+check_value("flush_ctl edge", found_at[10], 47);
+check_value("flush_ctl stalls", fc_stalls, 1);
+check_value("flush_ctl x1",  u_flush_ctl.u_regfile.regs[1],  32'd0);
+check_value("flush_ctl x2",  u_flush_ctl.u_regfile.regs[2],  32'd55);
+check_value("flush_ctl x3",  u_flush_ctl.u_regfile.regs[3],  32'd99);
+check_value("flush_ctl x4",  u_flush_ctl.u_regfile.regs[4],  32'd4);
+check_value("flush_ctl x5",  u_flush_ctl.u_regfile.regs[5],  32'd5);
+check_value("flush_ctl x6",  u_flush_ctl.u_regfile.regs[6],  32'd6);
+check_value("flush_ctl x7",  u_flush_ctl.u_regfile.regs[7],  32'd60);
+check_value("flush_ctl x9",  u_flush_ctl.u_regfile.regs[9],  32'hxxxxxxxx);
+check_value("flush_ctl x10", u_flush_ctl.u_regfile.regs[10], 32'hxxxxxxxx);
+check_value("flush_ctl x11", u_flush_ctl.u_regfile.regs[11], 32'hxxxxxxxx);
+check_value("flush_ctl x12", u_flush_ctl.u_regfile.regs[12], 32'hxxxxxxxx);
+check_value("flush_ctl x13", u_flush_ctl.u_regfile.regs[13], 32'd72);
+check_value("flush_ctl x14", u_flush_ctl.u_regfile.regs[14], 32'd80);
+check_value("flush_ctl x15", u_flush_ctl.u_regfile.regs[15], 32'hxxxxxxxx);
+check_value("flush_ctl x16", u_flush_ctl.u_regfile.regs[16], 32'hxxxxxxxx);
+check_value("flush_ctl x17", u_flush_ctl.u_regfile.regs[17], 32'd3);
+check_value("flush_ctl x18", u_flush_ctl.u_regfile.regs[18], 32'd1);
+check_value("flush_ctl x19", u_flush_ctl.u_regfile.regs[19], 32'd1);
+check_value("flush_ctl x20", u_flush_ctl.u_regfile.regs[20], 32'h00002100);
+check_value("flush_ctl x21", u_flush_ctl.u_regfile.regs[21], 32'd7);
+check_value("flush_ctl x22", u_flush_ctl.u_regfile.regs[22], 32'd7);
+check_value("flush_ctl x23", u_flush_ctl.u_regfile.regs[23], 32'hxxxxxxxx);
+check_value("flush_ctl x24", u_flush_ctl.u_regfile.regs[24], 32'hxxxxxxxx);
+check_value("flush_ctl x25", u_flush_ctl.u_regfile.regs[25], 32'd25);
+check_value("flush_ctl mem64", u_flush_ctl.u_dmem.mem[64], 32'd55);
+check_value("flush_ctl mem65", u_flush_ctl.u_dmem.mem[65], 32'hxxxxxxxx);
+check_value("flush_ctl mem66", u_flush_ctl.u_dmem.mem[66], 32'hxxxxxxxx);
+check_value("flush_ctl mem67", u_flush_ctl.u_dmem.mem[67], 32'hxxxxxxxx);
+check_value("flush_ctl mem68", u_flush_ctl.u_dmem.mem[68], 32'd7);
+check_value("flush_ctl mem69", u_flush_ctl.u_dmem.mem[69], 32'hxxxxxxxx);
+check_value("stall+flush", sf_hits, 0);
 
 if (errors == 0)
 $display("PASS: core_pipe, %0d checks, 0 errors", checks);
