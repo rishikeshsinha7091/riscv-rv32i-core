@@ -8,6 +8,7 @@ input reset
 
 `include "result_codes.vh"
 `include "fwd_codes.vh"
+wire stall;
 
 // ---- Fetch stage ----
 wire [31:0] pc;
@@ -17,7 +18,7 @@ wire [31:0] if_inst;
 
 // next_pc is assigned in the Execute stage (branch and jump mux)
 
-pc_reg u_pc (.clk(clk), .reset(reset), .en(1'b1), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
+pc_reg u_pc (.clk(clk), .reset(reset), .en(~stall), .next_pc(next_pc), .pc(pc), .pc_plus4(pc_plus4));
 
 imem #(.INIT_FILE(PROGRAM)) u_imem (.pc(pc), .instr(if_inst));
 
@@ -27,7 +28,7 @@ wire [31:0] id_pc;
 wire [31:0] id_pc_plus4;
 wire [31:0] id_inst;
 
-pipe_reg #(.WIDTH(96)) u_if_id (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0), .d({pc, pc_plus4, if_inst}), .q(if_id_q));
+pipe_reg #(.WIDTH(96)) u_if_id (.clk(clk), .reset(reset), .en(~stall), .flush(1'b0), .d({pc, pc_plus4, if_inst}), .q(if_id_q));
 
 assign {id_pc, id_pc_plus4, id_inst} = if_id_q;
 
@@ -91,11 +92,17 @@ wire ex_br_inv;
 wire ex_alu_src;
 wire [3:0] ex_alu_op;
 
-pipe_reg #(.WIDTH(193)) u_id_ex (.clk(clk), .reset(reset), .en(1'b1), .flush(1'b0),
+pipe_reg #(.WIDTH(193)) u_id_ex (.clk(clk), .reset(reset), .en(1'b1), .flush(stall),
 .d({id_pc, id_pc_plus4, id_src1, id_src2, id_imm, id_inst[11:7], id_inst[19:15], id_inst[24:20], id_reg_write, id_result_src, id_mem_write, id_mem_size, id_load_unsigned, id_branch, id_jump, id_jalr, id_br_lt, id_br_inv, id_alu_src, id_alu_op}),
 .q(id_ex_q));
 
 assign {ex_pc, ex_pc_plus4, ex_rdata1, ex_rdata2, ex_imm, ex_rd, ex_rs1, ex_rs2, ex_reg_write, ex_result_src, ex_mem_write, ex_mem_size, ex_load_unsigned, ex_branch, ex_jump, ex_jalr, ex_br_lt, ex_br_inv, ex_alu_src, ex_alu_op} = id_ex_q;
+
+// ---- Load-use hazard: stall one cycle (hold PC and IF/ID, bubble into ID/EX) ----
+wire ex_is_load;
+assign ex_is_load = (ex_result_src == RES_MEM);
+
+hazard_unit u_hazard (.id_opcode(id_inst[6:0]), .id_rs1(id_inst[19:15]), .id_rs2(id_inst[24:20]), .ex_is_load(ex_is_load), .ex_rd(ex_rd), .stall(stall));
 
 // ---- Execute stage ----
 wire [31:0] ex_alu_b;

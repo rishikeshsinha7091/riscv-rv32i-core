@@ -22,6 +22,11 @@ core_pipe #(.PROGRAM("tests/pipe/loop_sum.hex")) u_loop_sum (.clk(clk), .reset(r
 core_pipe #(.PROGRAM("tests/pipe/upper_jalr.hex")) u_upper_jalr (.clk(clk), .reset(reset));
 core_pipe #(.PROGRAM("tests/hazard/hazard_alu.hex")) u_hazard_alu (.clk(clk), .reset(reset));
 core_pipe #(.PROGRAM("tests/hazard/bypass_d3.hex")) u_bypass_d3 (.clk(clk), .reset(reset));
+core_pipe #(.PROGRAM("tests/hazard/load_use.hex")) u_load_use (.clk(clk), .reset(reset));
+
+integer lu_stalls;
+initial lu_stalls = 0;
+always @(posedge clk) if (u_load_use.stall === 1'b1) lu_stalls = lu_stalls + 1;
 
 always #5 clk = ~clk;
 
@@ -57,15 +62,15 @@ end
 endtask
 
 // ---- done detection: the spin jal in Execute jumps to itself, then wait for the pipeline to drain ----
-localparam NP = 9;
+localparam NP = 10;
 localparam DRAIN = 4;
 localparam TIMEOUT = 20000;
 localparam [NP-1:0] ALL = {NP{1'b1}};
 
-// index 0 = alu_full, 1 = mem_ops, 2 = byte_ops, 3 = branch_all, 4 = jal_ops, 5 = loop_sum, 6 = upper_jalr, 7 = hazard_alu, 8 = bypass_d3
-wire [NP-1:0] srcs = {u_bypass_d3.ex_pc_src, u_hazard_alu.ex_pc_src, u_upper_jalr.ex_pc_src, u_loop_sum.ex_pc_src, u_jal_ops.ex_pc_src, u_branch_all.ex_pc_src, u_byte_ops.ex_pc_src, u_mem_ops.ex_pc_src, u_alu_full.ex_pc_src};
-wire [32*NP-1:0] xpcs = {u_bypass_d3.ex_pc, u_hazard_alu.ex_pc, u_upper_jalr.ex_pc, u_loop_sum.ex_pc, u_jal_ops.ex_pc, u_branch_all.ex_pc, u_byte_ops.ex_pc, u_mem_ops.ex_pc, u_alu_full.ex_pc};
-wire [32*NP-1:0] nexts = {u_bypass_d3.next_pc, u_hazard_alu.next_pc, u_upper_jalr.next_pc, u_loop_sum.next_pc, u_jal_ops.next_pc, u_branch_all.next_pc, u_byte_ops.next_pc, u_mem_ops.next_pc, u_alu_full.next_pc};
+// index 0 = alu_full, 1 = mem_ops, 2 = byte_ops, 3 = branch_all, 4 = jal_ops, 5 = loop_sum, 6 = upper_jalr, 7 = hazard_alu, 8 = bypass_d3, 9 = load_use
+wire [NP-1:0] srcs = {u_load_use.ex_pc_src, u_bypass_d3.ex_pc_src, u_hazard_alu.ex_pc_src, u_upper_jalr.ex_pc_src, u_loop_sum.ex_pc_src, u_jal_ops.ex_pc_src, u_branch_all.ex_pc_src, u_byte_ops.ex_pc_src, u_mem_ops.ex_pc_src, u_alu_full.ex_pc_src};
+wire [32*NP-1:0] xpcs = {u_load_use.ex_pc, u_bypass_d3.ex_pc, u_hazard_alu.ex_pc, u_upper_jalr.ex_pc, u_loop_sum.ex_pc, u_jal_ops.ex_pc, u_branch_all.ex_pc, u_byte_ops.ex_pc, u_mem_ops.ex_pc, u_alu_full.ex_pc};
+wire [32*NP-1:0] nexts = {u_load_use.next_pc, u_bypass_d3.next_pc, u_hazard_alu.next_pc, u_upper_jalr.next_pc, u_loop_sum.next_pc, u_jal_ops.next_pc, u_branch_all.next_pc, u_byte_ops.next_pc, u_mem_ops.next_pc, u_alu_full.next_pc};
 
 integer edges;
 integer j;
@@ -320,6 +325,7 @@ $display("INFO: loop_sum: spin found at edge %0d", found_at[5]);
 $display("INFO: upper_jalr: spin found at edge %0d", found_at[6]);
 $display("INFO: hazard_alu: spin found at edge %0d", found_at[7]);
 $display("INFO: bypass_d3: spin found at edge %0d", found_at[8]);
+$display("INFO: load_use: spin found at edge %0d", found_at[9]);
 
 // alu_full: spin address 96
 check_value("alu_full done", done[0], 1);
@@ -504,6 +510,36 @@ check_value("bypass_d3 x23", u_bypass_d3.u_regfile.regs[23], 32'd33);
 check_value("bypass_d3 x24", u_bypass_d3.u_regfile.regs[24], 32'd40);
 check_value("bypass_d3 x27", u_bypass_d3.u_regfile.regs[27], 32'd43);
 check_value("bypass_d3 mem66", u_bypass_d3.u_dmem.mem[66], 32'd33);
+
+// load_use: spin address 112; 6 stall cycles; x15 is skipped by the taken bne and must stay unwritten
+check_value("load_use done", done[9], 1);
+check_value("load_use spin", spin_pc[9], 112);
+check_value("load_use edge", found_at[9], 36);
+check_value("load_use stalls", lu_stalls, 6);
+check_value("load_use x1",  u_load_use.u_regfile.regs[1],  32'd100);
+check_value("load_use x2",  u_load_use.u_regfile.regs[2],  32'd200);
+check_value("load_use x3",  u_load_use.u_regfile.regs[3],  32'd100);
+check_value("load_use x4",  u_load_use.u_regfile.regs[4],  32'd200);
+check_value("load_use x5",  u_load_use.u_regfile.regs[5],  32'd200);
+check_value("load_use x6",  u_load_use.u_regfile.regs[6],  32'hFFFFFF9C);
+check_value("load_use x7",  u_load_use.u_regfile.regs[7],  32'd100);
+check_value("load_use x8",  u_load_use.u_regfile.regs[8],  32'd5);
+check_value("load_use x9",  u_load_use.u_regfile.regs[9],  32'd105);
+check_value("load_use x10", u_load_use.u_regfile.regs[10], 32'd200);
+check_value("load_use x11", u_load_use.u_regfile.regs[11], 32'd110);
+check_value("load_use x12", u_load_use.u_regfile.regs[12], 32'd100);
+check_value("load_use x13", u_load_use.u_regfile.regs[13], 32'd200);
+check_value("load_use x15", u_load_use.u_regfile.regs[15], 32'hxxxxxxxx);
+check_value("load_use x16", u_load_use.u_regfile.regs[16], 32'd2);
+check_value("load_use x17", u_load_use.u_regfile.regs[17], 32'h00002108);
+check_value("load_use x18", u_load_use.u_regfile.regs[18], 32'h00002108);
+check_value("load_use x19", u_load_use.u_regfile.regs[19], 32'd100);
+check_value("load_use x20", u_load_use.u_regfile.regs[20], 32'h00002100);
+check_value("load_use x21", u_load_use.u_regfile.regs[21], 32'd200);
+check_value("load_use mem64", u_load_use.u_dmem.mem[64], 32'd100);
+check_value("load_use mem65", u_load_use.u_dmem.mem[65], 32'd200);
+check_value("load_use mem66", u_load_use.u_dmem.mem[66], 32'd100);
+check_value("load_use mem67", u_load_use.u_dmem.mem[67], 32'h00002108);
 
 if (errors == 0)
 $display("PASS: core_pipe, %0d checks, 0 errors", checks);
