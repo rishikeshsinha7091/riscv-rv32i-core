@@ -27,6 +27,11 @@ integer ref_stable;
 integer drain;
 reg [31:0] prev_pc;
 reg [31:0] dut_spin;
+integer ec;
+integer ref_last;
+integer found_at;
+integer s_cnt;
+integer r_cnt;
 
 assign both_done = ref_done & dut_done;
 
@@ -40,21 +45,32 @@ ref_stable = 0;
 drain = 0;
 prev_pc = 32'hxxxxxxxx;
 dut_spin = 32'hxxxxxxxx;
+ec = -1;
+ref_last = 0;
+found_at = 0;
+s_cnt = 0;
+r_cnt = 0;
 end
 
 // single-cycle core: done when the PC is known and unchanged for STABLE edges
 // pipelined core: done DRAIN edges after the spin was found in Execute
 always @(posedge clk) begin
+ec = ec + 1;
 if (!reset) begin
 if ((^u_ref.pc) === 1'bx) ref_stable = 0;
 else if (u_ref.pc === prev_pc) ref_stable = ref_stable + 1;
-else ref_stable = 0;
+else begin ref_stable = 0; ref_last = ec; end
 prev_pc = u_ref.pc;
 if (ref_stable >= STABLE) ref_done = 1'b1;
 if (!dut_found) begin
 if ((u_dut.ex_pc_src === 1'b1) && ((^u_dut.ex_pc) !== 1'bx) && (u_dut.next_pc === u_dut.ex_pc)) begin
 dut_found = 1'b1;
 dut_spin = u_dut.ex_pc;
+found_at = ec;
+end
+else begin
+if (u_dut.stall === 1'b1) s_cnt = s_cnt + 1;
+if (u_dut.redirect === 1'b1) r_cnt = r_cnt + 1;
 end
 end
 else if (!dut_done) begin
@@ -123,7 +139,7 @@ endmodule
 
 module tb_pipe_vs_single;
 
-localparam NPAIR = 15;
+localparam NPAIR = 19;
 localparam TIMEOUT = 2000;
 
 reg clk;
@@ -141,6 +157,33 @@ integer kd;
 integer mr;
 integer md;
 
+task show;
+input [8*12-1:0] name;
+input [31:0] cyc_s;
+input [31:0] cyc_p;
+input [31:0] stalls;
+input [31:0] redirs;
+input [31:0] e_n;
+input [31:0] e_s;
+input [31:0] e_r;
+input [31:0] e_f;
+reg [31:0] n;
+begin
+n = cyc_s - 1;
+$display("INFO: %0s N=%0d cycles single=%0d pipe=%0d stalls=%0d redirects=%0d", name, n, cyc_s, cyc_p, stalls, redirs);
+top_checks = top_checks + 1;
+if (cyc_p !== n + 3 + stalls + 2 * redirs) begin
+top_errors = top_errors + 1;
+$display("FAIL: %0s found edge %0d but N + 3 + S + 2R = %0d", name, cyc_p, n + 3 + stalls + 2 * redirs);
+end
+if (e_f !== 32'hx) begin
+check_value({name, " N"}, n, e_n);
+check_value({name, " S"}, stalls, e_s);
+check_value({name, " R"}, redirs, e_r);
+check_value({name, " found"}, cyc_p, e_f);
+end
+end
+endtask
 task check_value;
 input [8*24-1:0] name;
 input [31:0] actual;
@@ -172,6 +215,10 @@ pair #(.PROGRAM("sw/fib.hex"), .DATA("sw/fib.data.hex"), .NAME("c_fib")) p11 (.c
 pair #(.PROGRAM("sw/sort.hex"), .DATA("sw/sort.data.hex"), .NAME("c_sort")) p12 (.clk(clk), .reset(reset), .both_done(done[12]), .checks(chk[32*12 +: 32]), .errors(err[32*12 +: 32]));
 pair #(.PROGRAM("sw/bits.hex"), .DATA("sw/bits.data.hex"), .NAME("c_bits")) p13 (.clk(clk), .reset(reset), .both_done(done[13]), .checks(chk[32*13 +: 32]), .errors(err[32*13 +: 32]));
 pair #(.PROGRAM("tests/unsupported.hex"), .NAME("unsupported")) p14 (.clk(clk), .reset(reset), .both_done(done[14]), .checks(chk[32*14 +: 32]), .errors(err[32*14 +: 32]));
+pair #(.PROGRAM("tests/hazard/hazard_alu.hex"), .NAME("hazard_alu")) p15 (.clk(clk), .reset(reset), .both_done(done[15]), .checks(chk[32*15 +: 32]), .errors(err[32*15 +: 32]));
+pair #(.PROGRAM("tests/hazard/bypass_d3.hex"), .NAME("bypass_d3")) p16 (.clk(clk), .reset(reset), .both_done(done[16]), .checks(chk[32*16 +: 32]), .errors(err[32*16 +: 32]));
+pair #(.PROGRAM("tests/hazard/load_use.hex"), .NAME("load_use")) p17 (.clk(clk), .reset(reset), .both_done(done[17]), .checks(chk[32*17 +: 32]), .errors(err[32*17 +: 32]));
+pair #(.PROGRAM("tests/hazard/flush_ctl.hex"), .NAME("flush_ctl")) p18 (.clk(clk), .reset(reset), .both_done(done[18]), .checks(chk[32*18 +: 32]), .errors(err[32*18 +: 32]));
 pair #(.PROGRAM("tests/xpc.hex"), .NAME("xpc")) px (.clk(clk), .reset(reset), .both_done(), .checks(), .errors());
 
 always #5 clk = ~clk;
@@ -203,6 +250,10 @@ p11.evaluate;
 p12.evaluate;
 p13.evaluate;
 p14.evaluate;
+p15.evaluate;
+p16.evaluate;
+p17.evaluate;
+p18.evaluate;
 // unsupported: the sentinels, worked out by hand, must hold on both cores
 check_value("unsupported ref x1", p14.u_ref.u_regfile.regs[1], 32'd5);
 check_value("unsupported dut x1", p14.u_dut.u_regfile.regs[1], 32'd5);
@@ -244,6 +295,25 @@ check_value("xpc ref regs known", kr, 0);
 check_value("xpc dut regs known", kd, 0);
 check_value("xpc ref words known", mr, 0);
 check_value("xpc dut words known", md, 0);
+show("alu_ops", p0.ref_last, p0.found_at, p0.s_cnt, p0.r_cnt, 13, 0, 0, 16);
+show("mem_ops", p1.ref_last, p1.found_at, p1.s_cnt, p1.r_cnt, 10, 0, 0, 13);
+show("branch_ops", p2.ref_last, p2.found_at, p2.s_cnt, p2.r_cnt, 11, 0, 4, 22);
+show("jal_ops", p3.ref_last, p3.found_at, p3.s_cnt, p3.r_cnt, 7, 0, 4, 18);
+show("loop_sum", p4.ref_last, p4.found_at, p4.s_cnt, p4.r_cnt, 23, 0, 6, 38);
+show("alu_full", p5.ref_last, p5.found_at, p5.s_cnt, p5.r_cnt, 22, 0, 0, 25);
+show("upper_jalr", p6.ref_last, p6.found_at, p6.s_cnt, p6.r_cnt, 17, 0, 3, 26);
+show("branch_all", p7.ref_last, p7.found_at, p7.s_cnt, p7.r_cnt, 46, 0, 9, 67);
+show("byte_ops", p8.ref_last, p8.found_at, p8.s_cnt, p8.r_cnt, 33, 0, 0, 36);
+show("checksum", p9.ref_last, p9.found_at, p9.s_cnt, p9.r_cnt, 32'hx, 32'hx, 32'hx, 32'hx);
+show("c_first", p10.ref_last, p10.found_at, p10.s_cnt, p10.r_cnt, 32'hx, 32'hx, 32'hx, 32'hx);
+show("c_fib", p11.ref_last, p11.found_at, p11.s_cnt, p11.r_cnt, 32'hx, 32'hx, 32'hx, 32'hx);
+show("c_sort", p12.ref_last, p12.found_at, p12.s_cnt, p12.r_cnt, 32'hx, 32'hx, 32'hx, 32'hx);
+show("c_bits", p13.ref_last, p13.found_at, p13.s_cnt, p13.r_cnt, 32'hx, 32'hx, 32'hx, 32'hx);
+show("unsupported", p14.ref_last, p14.found_at, p14.s_cnt, p14.r_cnt, 8, 0, 0, 11);
+show("hazard_alu", p15.ref_last, p15.found_at, p15.s_cnt, p15.r_cnt, 36, 0, 2, 43);
+show("bypass_d3", p16.ref_last, p16.found_at, p16.s_cnt, p16.r_cnt, 40, 0, 0, 43);
+show("load_use", p17.ref_last, p17.found_at, p17.s_cnt, p17.r_cnt, 25, 6, 1, 36);
+show("flush_ctl", p18.ref_last, p18.found_at, p18.s_cnt, p18.r_cnt, 31, 1, 6, 47);
 #1;
 total_checks = 0;
 total_errors = 0;
