@@ -406,3 +406,67 @@ Bugs put in on purpose: a `jalr` that keeps bit 0 of its target failed exactly 1
 To see a real hazard, I swapped two lines in `tests/pipe/mem_ops.hex`, so that the first `sw` runs one instruction earlier. It then reads `x1` only 3 instructions after `addi x1` wrote it and sees the old, unknown value. The store writes an unknown word to memory and the later `lw` loads it. Exactly 2 of 388 checks failed (`x6` and the memory word), and the spin address and cycle counts did not change. That is the situation the padding avoids.
 
 Hazard handling is the next step. A value that a consumer needs is already inside the pipeline one register ahead, so forwarding can take it from there for ALU results. A load is different: its data only comes out of the data memory in the Memory stage, one stage too late for the next instruction, so a load followed directly by its user needs one stall cycle even with forwarding. A taken branch or jump needs the two instructions behind it flushed, which costs 2 cycles. The original programs and the C programs are not run on `core_pipe` yet, because they contain all three hazards.
+
+## Part 8: hazard handling for the pipeline
+
+### 52. Scope: three hazards, one mechanism each
+
+The pipeline of Part 7 could only run padded programs. This part makes it handle the three hazards, with one mechanism for each. A data hazard (a register read just after it is written) is solved by forwarding the value from the pipeline register that holds it. A load followed by its user cannot be forwarded in time, so it gets a one-cycle stall. A taken branch or jump gets a flush of the two instructions behind it. Each mechanism got its own test before the next one was started, and the single-cycle core stays untouched as the reference.
+
+Decisions made first, with the reason: the register file keeps its old behaviour (a read in the same cycle as a write gets the old value), because the single-cycle core needs it; an instruction such as `addi x1, x1, 1` must read the old `x1`. The same-cycle case is handled by a bypass in `core_pipe` instead. The program counter gets an enable input for the stall. The load-use detector is precise, meaning it decides from the opcode which registers an instruction really reads. The new programs go into `tests/hazard/` and run as more instances of `tb_core_pipe`. Every test prediction (values and the clock edge at which a program ends) is worked out by hand before the run. The rule for the ending edge is the fetch slot of the spin (counting the two wrong-path instructions behind every taken jump) plus 3, plus one for every stall cycle.
+
+### 53. ID/EX carries the source register numbers
+
+Forwarding compares the source register numbers of the instruction in Execute with the destinations ahead of it, but the numbers were thrown away after Decode. ID/EX grew from 183 to 193 bits (rs1 and rs2 right after rd), and the four registers now hold 439 flip-flops. The stage test reads the registers by name, so only 26 checks were added (2 per edge), and the expected numbers are typed by hand from the instruction table, not sliced from the instruction word, so that a wrong slice cannot be copied into both the design and the test. 388 checks became 414.
+
+Bugs put in on purpose: swapping rs1 and rs2 when unpacking failed 20 of 414 checks, and taking rs2 from the rs1 bits failed 10. Both compile without any message and are visible only because rs1 and rs2 differ in 10 of the 11 stage-test instructions.
+
+### 54. The forwarding unit
+
+`fwd_unit` is a small combinational module: for each of the two source registers it chooses the register value, the EX/MEM result or the MEM/WB data. A source qualifies only if that instruction writes a register (`reg_write`), the destination is not x0, and the numbers are equal; EX/MEM wins because it holds the newer instruction. The test has 20 directed cases and four sweeps over all register numbers, 788 checks, ending at 394 ns. One directed case checks that an instruction in EX/MEM that writes nothing must not hide an older writer in MEM/WB.
+
+Bugs put in on purpose: reversed priority failed 1 of 788, forwarding x0 failed 5, ignoring `reg_write` for MEM/WB failed 1, and a 4-bit register-number compare failed 31. The last one compiles silently and would pass any test that uses only registers below x16; the directed case with numbers differing only in bit 4 and the sweep find it.
+
+### 55. Forwarding wired in, and the first hazard program
+
+Two 3-input muxes sit right after ID/EX, before the ALU's `alu_src` mux, and their outputs feed the ALU, the data of a store, the branch comparison and the `jalr` base. The order matters: a false match (an `addi` whose immediate bits look like the register written just before) puts a forwarded value on an operand the instruction ignores, and the immediate still wins because the forwarding comes first. A store takes its data from the forwarded value, not from the ALU's second input. The forwarded values are `mm_result` and `wb_data`, never the raw loaded value, which is unknown for every instruction that is not a load.
+
+The new program `hazard_alu` has 45 instructions with no `nop`s for data hazards: chains at distances 1 and 2 on both operands, two writers of one register, a write to x0, stores of just-written registers, a false match, and a branch and a `jalr` on a register written one instruction earlier. It ends at edge 43 with the spin at address 168, both worked out by hand. 33 checks, 447 in total.
+
+Bugs put in on purpose: store data not forwarded failed 3 (only the memory words were wrong, every register was right), ALU b not forwarded failed 5, and the MEM/WB path missing for rs2 failed 2.
+
+### 56. The Write-back bypass for distance 3
+
+An instruction three places behind its producer is in Decode while the producer is in Write-back. The value is on the wires to the register file but is written only at the clock edge, so the read gets the old value, and one cycle later the producer has left the pipeline. A bypass inside `regfile` would fix this, but the single-cycle core shares that module and needs the old value (`addi x1, x1, 1`); with the bypass the instruction would read its own result and form a combinational loop. So the bypass is in `core_pipe`, right after the register read, with the same three conditions as the forwarding unit. The order of authority is EX/MEM, MEM/WB, the bypass, the register file.
+
+`bypass_d3` (43 instructions, spin at 160, ends at edge 43) reads at distance 3 on rs1, rs2, store data and a load result, reads x0 after an `addi x0`, reads a register named by the `rd` bits of a store, and has an instruction that needs the bypass on one operand and forwarding on the other. It also reads a load result at distance 2, which the earlier program did not cover. 469 checks. Bugs put in on purpose: no bypass for rs1 failed 4, no bypass for rs2 failed 8 (three directly, five because an unknown value reached memory and was loaded back), and dropping the x0 check failed 1. The count worked out by hand for the last one was 2: the trace had taken the return target of `jalr x0, x9, 0` in `upper_jalr` to be an instruction that reads x0, but it returns to a `nop` that ignores the value. The x0 rule is therefore exposed only by `bypass_d3`.
+
+### 57. A program counter with an enable
+
+`pc_reg` got an `en` input: low holds the PC, and reset wins. Both cores had to connect it. The first run after adding the port, with the old testbench that did not connect it, failed 11 of 18 checks: an unconnected input floats to `z`, `if (z)` is false, and the PC never moved. The single-cycle core ties `en` to 1 and keeps its 208 checks. The PC testbench grew from 18 to 28 checks (hold twice, resume, reset while the enable is low). Bugs put in on purpose: ignoring the enable failed 4 of 28, and reset not winning over a low enable failed 2. Only a test that resets while the enable is low can see the second one.
+
+### 58. The load-use detector
+
+`hazard_unit` asks for a stall when the instruction in Execute is a load, its destination is not x0, and the instruction in Decode really reads that register. "Really reads" is a whitelist of opcodes: rs1 for loads, stores, branches, `jalr` and the two ALU groups, rs2 for stores, branches and register-register instructions. `lui`, `auipc`, `jal`, the all-zero bubble and unknown opcodes never stall. The precision matters because an `addi` has no rs2 and its immediate bits can look like the load's destination: the stall would still give correct values and only cost a cycle, so it would show up only in the cycle counts.
+
+The test has 29 directed cases and five sweeps (all 128 opcodes with a match on rs1 only and on rs2 only, every register number, every one-bit-different number, and a producer that is not a load), 504 checks. Bugs put in on purpose: counting rs2 as always read failed 129 (the false stalls), dropping the x0 check failed 3, ignoring the load flag failed 32, and a typo in one opcode failed 6. The sweep over all 128 opcodes is what finds the typo that makes a wrong opcode count as a store.
+
+### 59. The stall, counted
+
+A stall holds the PC and IF/ID and flushes ID/EX, and the load goes on. Both holds are needed. The program `load_use` has 31 instructions with six stall cycles: a load followed by its user on rs1, on rs2, as store data, in a branch, and in a pointer chase (a load whose result is the base address of the next load), plus two pairs that must not stall. It ends at edge 36 (25 executed instructions, 3, 6 stalls, and 2 for the taken branch). The testbench also counts the cycles in which the stall signal is 1, because values alone cannot show a missing or an extra stall. 497 checks.
+
+Bugs put in on purpose: a stall that never happens failed 7 (every consumer got the load's address instead of its data, and the ending edge was 30), and holding the PC but not IF/ID failed 7. In that second case five consumers were never executed and the instruction behind each one ran twice, so the ending edge stayed at 36: the lost and the duplicated instructions cancel in the cycle count, and only the values and the stall count show the bug. A third break, removing the bubble from ID/EX, was not run because its effect depends on stale values in a branch compare and could not be worked out by hand.
+
+### 60. The flush, with harmful instructions on the wrong path
+
+On a taken branch, `jal` or `jalr`, IF/ID and ID/EX are flushed; EX/MEM and MEM/WB are not, so a `jal` still writes its link register. `jalr` is not part of the branch-taken signal, so the redirect is the OR of both. A stall and a flush cannot happen in the same cycle, since a load and a branch cannot both be in Execute, so no extra logic was added; a monitor in the testbench counts the cycles in which both are 1 in every instance, and one check requires the count to be 0. In the stage test the entry after the `jal` is now a bubble, which changed two expected values at edge 12 (planned in advance); the seven padded programs and the three earlier hazard programs kept their results and their ending edges.
+
+The padded programs could never show that a flush works, because a `nop` does nothing even if it runs. `flush_ctl` (40 instructions, spin at 156, ends at edge 47) puts a register write and a memory write right behind every taken jump, and nothing follows the spin. Bugs put in on purpose: not flushing ID/EX failed 7 (the first wrong-path register writes ran, and the stage test saw the instruction in ID/EX), not flushing IF/ID failed 5 (the four poison stores and a loop counter), and leaving `jalr` out of the redirect failed 2. The monitor was checked by making it fire: counting a stall or a redirect gave 25, which is 6 stall cycles, 1 redirect, and 18 redirects of the spin. The spin redirects only every third cycle, because each taken jump costs two bubbles; the count worked out by hand had assumed every cycle and was wrong by a factor of 3. A break that also flushed EX/MEM was not run: it would lose the link register that `upper_jalr` returns through, so that program never reaches its spin. 532 checks.
+
+### 61. A first run of the original programs
+
+Before writing this up, a throwaway testbench outside the repository ran all 16 original programs (the 12 assembly programs and the 4 C programs) on the single-cycle core and on `core_pipe` side by side, and compared registers x1 to x31 and all 1024 data words after 2000 cycles. They were identical for all 16. To check that the comparison can fail, the load-use stall was removed: three programs then differed (`c_sort`, `c_first` and `checksum`), which shows that compiled code contains loads followed directly by their users. This run is not part of the repository. Turning it into a committed test, with the cycle counts of both cores, is the next part.
+
+### 62. What the pipeline still does not do
+
+Every taken branch and jump costs 2 cycles, because there is no branch prediction, and every load followed by its user costs 1, including a load followed by a store of the loaded value. The memories still read combinationally, which a real clocked memory would not. Simulation shows that the values and the cycle counts are right; it cannot show the clock period, and the forwarding muxes make the Execute stage longer. The synthesis step will give an estimate and the README will say what it cannot tell. The programs of the single-cycle core have been run on the pipeline only in the throwaway comparison above.
