@@ -9,3 +9,6 @@
 *.elf
 *.bin
 *.map
+
+# Synthesis logs (run_synth.ps1 regenerates them)
+synth/out/

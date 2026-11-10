@@ -1,0 +1,13 @@
+Yosys version : Yosys 0.52 (git sha1 fee39a3284c90249e1d9684cf6944ffbbcbb8f90)
+Flow          : synth -flatten -nordff, generic cells, no technology library
+Memories      : imem and dmem are black boxes (area) and zero-delay wires (depth); their area and access time are NOT included
+Cell counts   : exclude the $scopeinfo bookkeeping cells and the two black-box cells
+Depth         : longest chain of cells between flip-flops (Yosys ltp -noff); not a clock period
+
+design      flip-flops  logic cells   total  logic depth (cells)
+core              1056         5269    6325                   56
+core_pipe         1491         5488    6979                   44
+
+Depth ratio core_pipe / core = 0.79
+Break-even from the C-program cycle counts (595 / 863): the pipeline wins only if its clock period is below 0.69 times the single-cycle clock period.
+The depth ratio is not a period ratio. See the README for the limits.
