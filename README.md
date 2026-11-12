@@ -1,10 +1,10 @@
 # RISC-V RV32I Core
 
-A RISC-V RV32I processor core written in Verilog. RV32I is the base 32-bit integer instruction set. The repository holds a single-cycle core and a 5-stage pipelined core. The pipelined core handles data hazards with forwarding, load-use hazards with a one-cycle stall and control hazards with a flush, and it is tested on programs written for those hazards. A second test runs it side by side with the single-cycle core on 20 programs and compares the final state and the cycle counts.
+A RISC-V RV32I processor core written in Verilog. RV32I is the base 32-bit integer instruction set. The repository holds a single-cycle core and a 5-stage pipelined core. The pipelined core handles data hazards with forwarding, load-use hazards with a one-cycle stall and control hazards with a flush, and it is tested on programs written for those hazards. A second test runs it side by side with the single-cycle core on 20 programs and compares the final state and the cycle counts. Both cores are synthesized with Yosys (generic gates, memories as black boxes) to compare their size and logic depth.
 
 ## Status
 
-Early development. The repository contains a single-cycle core that runs 37 of the 40 instructions of the RV32I base set: everything except `fence`, `ecall` and `ebreak` (see Design notes for why), and a 5-stage pipelined core for the same 37 instructions. Every module has a self-checking testbench. The single-cycle core test runs twelve small assembly programs from `tests/` and four C programs compiled with GCC from `sw/`, and checks their results automatically. The pipelined core has forwarding, a Write-back bypass into Decode, a one-cycle stall for a load followed by its user, and a flush on every taken branch and jump. Its testbench runs a stage test, seven padded copies of the assembly programs and four programs written for hazards (`tests/hazard/`). The results of those programs, and the clock edge at which each one ends, are worked out by hand, and a monitor checks that a stall and a flush never happen in the same cycle. A third testbench, `tb_pipe_vs_single`, runs the twelve assembly programs, the four C programs and the four hazard programs on the pipelined core and on the single-cycle core side by side and compares the final registers, the data memory and the final PC. It also counts the instructions, the stall cycles and the taken jumps of every program, and the cycle counts of both cores are in the section Cycle counts. One command runs all tests. The synthesis results are not done yet.
+Early development. The repository contains a single-cycle core that runs 37 of the 40 instructions of the RV32I base set: everything except `fence`, `ecall` and `ebreak` (see Design notes for why), and a 5-stage pipelined core for the same 37 instructions. Every module has a self-checking testbench. The single-cycle core test runs twelve small assembly programs from `tests/` and four C programs compiled with GCC from `sw/`, and checks their results automatically. The pipelined core has forwarding, a Write-back bypass into Decode, a one-cycle stall for a load followed by its user, and a flush on every taken branch and jump. Its testbench runs a stage test, seven padded copies of the assembly programs and four programs written for hazards (`tests/hazard/`). The results of those programs, and the clock edge at which each one ends, are worked out by hand, and a monitor checks that a stall and a flush never happen in the same cycle. A third testbench, `tb_pipe_vs_single`, runs the twelve assembly programs, the four C programs and the four hazard programs on the pipelined core and on the single-cycle core side by side and compares the final registers, the data memory and the final PC. It also counts the instructions, the stall cycles and the taken jumps of every program, and the cycle counts of both cores are in the section Cycle counts. One command runs all tests. A second script synthesizes both cores with Yosys and reports their size and logic depth (see Synthesis); it gives no clock period, so the README makes no claim about which core is faster.
 
 | Module | Description |
 |---|---|
@@ -32,6 +32,7 @@ Early development. The repository contains a single-cycle core that runs 37 of t
 - `tests/` : assembly test programs for the core: the source (`.asm`) and the assembled hex file (`.hex`) that the core loads. `tests/pipe/` holds the padded copies for the pipelined core and `tests/hazard/` holds programs written to cause hazards
 - `sw/` : C test programs for the core, the start-up code, the linker script, the build script and the generated hex files
 - `sim/` : run scripts (`run.cmd` for one test, `run_all.ps1` for all of them, `cpi_table.ps1` for the cycle-count table)
+- `synth/` : the synthesis script (`run_synth.ps1`), two stub files that stand in for the memories, and its committed result (`results.txt`)
 - `docs/` : design log and waveform screenshots
 
 ## Running the tests
@@ -108,7 +109,7 @@ What it does not do:
 - There is no branch prediction, so every taken branch and jump costs 2 cycles.
 - A load followed directly by an instruction that reads it costs 1 cycle, including a load followed by a store of the loaded value.
 - The memories read combinationally. Real clocked memories would change the Memory stage and the load latency.
-- Simulation cannot show the clock period. The forwarding muxes lengthen the Execute path; that needs a timing estimate from synthesis.
+- Simulation cannot show the clock period. The forwarding muxes lengthen the Execute path; the Synthesis section gives a logic depth, which is not a clock period.
 
 ### Test programs for the pipelined core
 
@@ -188,9 +189,46 @@ Reading the numbers:
 
 What the table does not say:
 
-- CPI counts cycles, not time. Time is instructions x CPI x clock period, and the clock periods are not known: simulation has no gate delays. With these totals the pipelined core is faster only if its clock period is below about 0.69 of the single-cycle core's (595 / 863). That is not measured here, so the table does not say which core is faster.
+- CPI counts cycles, not time. Time is instructions x CPI x clock period, and the clock periods are not known: simulation has no gate delays. With these totals the pipelined core is faster only if its clock period is below about 0.69 of the single-cycle core's (595 / 863). That is not measured here, so the table does not say which core is faster. The Synthesis section gives a logic depth for both cores and says what it does not show.
 - The programs are small, and the C programs were built at `-O1` only; other optimisation levels give other code and other stall counts. The assembly programs were written to test one thing each and the hazard programs to stress the hazard logic, so they are not typical code.
 - Both memories read combinationally, so loads and stores cost no extra time. A real clocked memory would raise the CPI of both cores.
+
+## Synthesis
+
+`.\synth\run_synth.ps1` synthesizes `core` and `core_pipe` with Yosys and prints their size and logic depth. It checks itself (20 checks, one of them that the longest path of the pipelined core is shorter than that of the single-cycle core), prints `PASS: SYNTH, 20 checks, 0 errors` and writes `synth/results.txt`, which is committed. It runs from the repository root and needs WSL with Ubuntu and `yosys` (`sudo apt install yosys`; the numbers below are from Yosys 0.52). It is not part of `run_all.ps1`, which must work without them. Yosys runs inside WSL because the Windows build of its ABC program was blocked on the development machine by Windows Smart App Control.
+
+No technology library is used. The cells are the generic gates and flip-flops of Yosys, so an area is a number of cells, not square micrometres, and the cells are not equal in size (a flip-flop is larger than a NAND gate). Cell counts exclude the bookkeeping cells that Yosys adds and the two black-box cells below.
+
+How the cores are synthesized:
+
+- `imem` and `dmem` are black boxes. `synth/memstubs.v` declares only their ports. As flip-flops, `dmem` alone is 70,722 cells (32,768 flip-flops and 32,736 multiplexers), more than ten times the size of `core`, and a real chip uses a memory block for this. The area of the memories is in no number below. The stub files repeat the ports of `imem` and `dmem`, so they must be changed together with those modules.
+- The cores have no output ports, so Yosys would delete everything. The two memory instances are marked `keep`; their input pins make everything that drives them observable. Without `keep`, `core` shrank to nothing.
+- The flow is `synth -flatten -nordff`. `-nordff` stops Yosys from merging the flip-flops in front of the register file's read addresses into its read ports, which added 10 duplicate flip-flops to `core_pipe` (1,501 instead of 1,491).
+
+Results (`synth/results.txt`):
+
+| | Flip-flops | Logic cells | Total cells | Logic depth (cells) |
+|---|---|---|---|---|
+| `core` | 1,056 | 5,269 | 6,325 | 56 |
+| `core_pipe` | 1,491 | 5,488 | 6,979 | 44 |
+
+- Flip-flops can be counted from the code before the run: PC 32 + register file 32 x 32 = 1,056, and 439 pipeline-register bits more for the pipelined core, 1,495. Run module by module, Yosys gives exactly these numbers. Run as a whole, it gives 1,056 and 1,491: it removes four pipeline bits that nothing reads (which four was not identified). The register file keeps 1,024 flip-flops, not 992: Yosys does not remove the word for x0, although it is never written.
+- Pipelining costs 435 more flip-flops (41 percent) and 219 more logic cells (4 percent): the pipeline registers, and the forwarding, hazard and flush logic.
+- The ALU alone is 1,461 cells and has no flip-flops. Without its three shifters it is 888, so the shifters are 573 cells (39 percent). The register file is 3,167 cells: 1,024 flip-flops and 1,984 multiplexers.
+- The script fails if the ALU's `default` case is removed (a latch appears in both cores).
+
+Logic depth is the longest chain of cells between two flip-flops (Yosys `ltp -noff`). For this measurement the memories are zero-delay wires (`synth/memwire.v`), so a path through a memory is not cut and the memory time counts as zero.
+
+- `core`, 56 cells: from the instruction bits through decode, the ALU and the data-memory path to a register write. With the data-memory path cut it is 54.
+- `core_pipe`, 44 cells: as far as the end points show, the branch loop in Execute: forwarding comparison, ALU compare, redirect decision and the flush of ID/EX.
+- The ratio is 44 / 56 = 0.79. The cycle counts say the pipelined core wins on the C programs only if its clock period is below 0.69 of the single-cycle core's (595 / 863). The depth ratio is above that, but it leaves out the memories.
+
+What this does not show:
+
+- Depth is not time. Gates have different delays, wires and placement are not modelled, the path search also counts paths that can never be active, and the clock-to-output and setup times of the flip-flops are left out. They hurt the pipeline most, because each of its stages pays them again, so the real period ratio is closer to 1 than the depth ratio.
+- The memory access time is left out, and the single-cycle core has to fit two memory accesses in series (the instruction, then the data) into one cycle. The pipeline has one per stage. This is the main reason why the real period ratio can be much lower than the depth ratio.
+- A model, not a measurement. Let $M$ be the time of one memory access and $o$ the flip-flop overhead, both in gate levels. Then $T_\text{single} = o + 56 + 2M$ and $T_\text{pipe} = o + 44$ (valid while $M$ is below about 40). With $o = 3$ the pipelined core wins on the C programs when $M$ is above about 4.6; with $o = 10$, above about 6.2. Whether a real memory is slower than that is not known here.
+- No megahertz, nanoseconds, square millimetres or power, and no claim about which core is faster. Placement, routing and an FPGA run are not part of this project yet.
 
 ## Design notes
 
@@ -212,11 +250,12 @@ What the table does not say:
 - `pipe_reg` has an enable input (a stall holds the value) and a flush input (it clears the register). If both are active the flush wins, so a thrown-away instruction cannot be held in place, and reset wins over both. In `core_pipe` a stall holds the PC and IF/ID and flushes ID/EX, and a taken jump flushes IF/ID and ID/EX. `pc_reg` has an enable for the same reason; the single-cycle core ties it to 1.
 - In the pipelined core the loaded value that reaches Write-back is unknown (`x`) for every instruction that is not a load, because the Memory stage reads the data memory for every instruction. It is never used for them, and a forwarded value always comes from `wb_data`, which chooses the loaded value only for a load. For a load in EX/MEM the result register holds the address, not the data, which is why a load followed by its user is stalled and never forwarded from EX/MEM.
 - The forwarding unit only compares register numbers. It does not check whether the instruction really reads them, so an `addi` whose immediate bits equal the register written just before gets a forwarded value on an operand it ignores. That is harmless because the forwarding muxes sit before the ALU's `alu_src` mux and the immediate wins. The stall logic is precise: it decides from the opcode which registers an instruction reads, because a false stall would cost a cycle. The six opcode values it uses are also in `control`, so they exist in two places.
-- Simulation shows that the pipelined core is correct on its programs and how many clock edges they take. It cannot show that the clock period is shorter than that of the single-cycle core, because every gate has zero delay in Icarus. That needs a timing estimate from synthesis, and the README will say so when it exists.
+- Simulation shows that the pipelined core is correct on its programs and how many clock edges they take. It cannot show that the clock period is shorter than that of the single-cycle core, because every gate has zero delay in Icarus. A clock period needs a technology library and a physical design flow, which this project does not have. The Synthesis section gives a logic depth and a model, and says what they do not show.
 
 ## Planned
 
-- Area results from synthesis with Yosys, and an estimate of the clock period of both cores, which the cycle counts cannot give
+- A diagram of the pipeline and a waveform of the pipeline filling
+- Possible later work, not started: an FPGA run, and branch prediction to cut the flush cycles
 
 ## Tools
 
@@ -225,4 +264,4 @@ What the table does not say:
 - Assembly test programs assembled with RARS
 - C test programs compiled with the xPack GNU RISC-V Embedded GCC 15.2.0-1
 - PowerShell scripts for the build and the test runner
-- Synthesis with Yosys (planned)
+- Synthesis with Yosys 0.52, run in WSL (Ubuntu) from a PowerShell script
