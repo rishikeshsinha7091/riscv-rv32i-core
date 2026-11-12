@@ -516,3 +516,69 @@ On the four C programs (591 instructions, built with `-O1`) the single-cycle cor
 ### 70. What Part 9 does not show
 
 The comparison sees final state only, and shares nine modules with its reference. For five programs the counters are checked only by the equation. The programs are small and the C programs were built at `-O1` only, so the CPI numbers describe these programs compiled this way, not the core. The assembly programs test one thing each and the hazard programs stress the hazard logic, so they are not typical code. Both memories still read combinationally, which flatters the CPI of both cores. There is no branch prediction. Random or constrained-random programs compared with the single-cycle core, and other optimisation levels, were left out on purpose to keep to the schedule; they are the most useful additions if more verification is wanted. A speed comparison needs the clock periods, which simulation cannot give.
+
+## Part 10: synthesis with Yosys
+
+### 71. Scope: what synthesis without a technology library can and cannot show
+
+Part 10 synthesizes both cores with Yosys, so that the pipeline can be compared with the single-cycle core by size and by logic depth, which simulation cannot give. There is no technology library, so the cells are generic gates and flip-flops, an area is a count of cells and not square micrometres, and a timing estimate can only be a logic depth, not a clock period.
+
+Decisions made first, with the reason: the memories are treated as black boxes, because as flip-flops they would hide the core and because a real chip uses a memory block for them. The flip-flop count is the one number that is predicted by hand before every run, because every flip-flop comes from a register bit in the code, while gate counts are reshaped by the optimiser and only estimated. The whole flow is in one script in the repository, so the numbers can be reproduced, and its results are committed in `synth/results.txt`.
+
+### 72. The tool: Yosys in WSL
+
+The first install was the OSS CAD Suite for Windows. The release page offered a `.tgz` and not the `.exe` that the documentation described, and `tar` unpacked it. Yosys ran, but its ABC program `yosys-abc.exe` was blocked by Windows Smart App Control (`blocked by your organization's Device Guard policy`), so every `synth` stopped at the ABC step with return code 4551. `Unblock-File` on the whole folder changed nothing. While active, the suite also put its own `iverilog` 14.0 in front of the project's 12.0 on the PATH, so it was never added to the permanent PATH.
+
+The fix was Yosys 0.52 from the Ubuntu package inside WSL. Smart App Control does not apply to Linux programs. The script calls `wsl yosys` from PowerShell; a test showed that a command string with semicolons arrives in Ubuntu intact. Every number in this log is from Yosys 0.52, not from the 0.70 of the suite. Git stays on the Windows side: git run inside Ubuntu on the same folder reported every file as modified (most likely a line-ending difference) and changed nothing.
+
+### 73. The memories as black boxes, and `keep`
+
+`read_verilog -lib` on the real `imem.v` and `dmem.v` failed: Yosys still reads the `initial $readmemh` line and could not open `tests/program.hex`, the default of the parameter. The black boxes are now two stub files that declare only the ports (`synth/memstubs.v`).
+
+For the record, `dmem` alone as flip-flops: 70,722 cells, of which exactly 32,768 flip-flops and 32,736 multiplexers. Both were predicted by hand. That is more than ten times the 6,325 cells of the whole single-cycle core.
+
+`core` and `core_pipe` have no output ports. Without `keep` on the two memory instances, `core` shrank to 7 bookkeeping cells and no logic, so Yosys does not treat the black boxes as something that must stay. With `keep`, their input pins make everything that drives them observable, and the cores survive.
+
+### 74. The ALU and the register file on their own
+
+The ALU is 1,461 cells with 0 flip-flops and 0 latches, which was predicted. The guess of 1,500 to 2,500 cells was a guess and was slightly high. With its three shifters commented out it is 888 cells, 573 fewer (39 percent). The direction was predicted and the size was not (the guess was 300 to 500), and all the multiplexers (310) disappeared with the shifters.
+
+The register file is 3,167 cells: 1,984 multiplexers, as estimated by hand (a 32:1 multiplexer is 31 two-input ones, for 32 bits and two read ports), and 1,024 flip-flops. The hand count before the run was 992, because x0 is never written, and that was wrong: Yosys keeps the word for x0. Removing the write guard `waddr != 0` changed the cell count by 4 (3,167 to 3,163) and the flip-flop count not at all. The guard costs 4 cells and saves nothing; reads of x0 are masked on the read side, so the behaviour does not depend on it. The hand count of the cores was corrected to 1,056 and 1,495.
+
+### 75. Counting cells honestly
+
+The first flip-flop count summed the cell-type list twice (2,112 instead of 1,056), because Yosys prints the list once in the ABC step and once in the final `stat`. The sum now restarts at every `===` header. The totals of `stat` also contain cells that are not hardware: 7 `$scopeinfo` bookkeeping cells in `core` (13 in `core_pipe`, one for each flattened module) and the 2 black-box cells. They are subtracted: the 6,334 cells that `stat` reports for `core` are 6,325 real cells, of which 1,056 are flip-flops and 5,269 are logic.
+
+### 76. The flip-flops of `core` and `core_pipe` against the hand count
+
+Run module by module, Yosys gave exactly the hand counts: 1,056 for `core` and 1,495 for `core_pipe` (`pc_reg` 32, `regfile` 1,024, the four pipeline registers 96, 193, 77 and 73). The `alu` and `regfile` blocks had exactly the cell counts of the single-module runs, 1,461 and 3,167. Run flat, `core` had 1,056, and `core_pipe` had 1,501, six more than the register bits in the code. The expectation written beforehand, "1,495 or lower, never higher", was wrong.
+
+The first explanation, that Yosys re-encoded a few control fields as a state machine, was wrong: its log shows no state-machine extraction. The second fits: the instruction bits that select the register file's read addresses come straight from the IF/ID flip-flops, and Yosys merges such flip-flops into the memory read port and then makes new ones when it maps the memory. `synth -nordff` switches that merge off, and the count fell to 1,491 (6,994 cells), exactly 10 fewer: 2 read ports of 5 address bits. The single-cycle core has no flip-flops in front of its register file, which is why it was never affected. The remaining 4 flip-flops under 1,495 are pipeline bits that nothing reads and that the flat run deletes; which four was not identified, because it was not worth the time. All numbers use `-nordff`.
+
+The flat cell counts are 1.3 and 1.7 percent above the sum of the modules (6,325 against 6,243 for `core`, 6,995 against 6,875 for `core_pipe`). This was not explained.
+
+The price of the pipeline: 435 more flip-flops (41 percent) and 219 more logic cells (4 percent), which is the pipeline registers plus forwarding, the hazard unit and the flush.
+
+### 77. Logic depth
+
+Yosys `ltp -noff` prints the longest chain of cells between flip-flops. A black box would cut every path at a memory and show the single-cycle core in pieces, so for this measurement the memories are zero-delay wires (`synth/memwire.v`: `instr = pc`, `rdata = addr`), with `keep` on the PC and the store wires. The memory time then counts as zero in both cores.
+
+`core`: 56 cells, from instruction bit 30 (through the wire, PC bit 30) to bit 31 of the register write data. `core_pipe`: 44 cells, from bit 7 of MEM/WB to bit 6 of ID/EX. From the order of the concatenations in `core_pipe.v` those are `wb_rd[3]` and `ex_br_lt`, and a `combine_resets` cell is on the path, so the longest path is the branch loop in Execute: forwarding comparison, ALU compare, redirect, and the flush of ID/EX. That reading was not confirmed by the tool, which does not name stages. With the read data of the data memory tied to 0, `core` has 54, so the longest single-cycle path does go through the data memory, but it is only 2 cells longer than the longest path that does not.
+
+The ratio is 44 / 56 = 0.79, which is above the break-even of 0.69 from the CPI table. That is not a verdict. The depth leaves out the memory access time, and the single-cycle core has to fit two accesses in series into one cycle, while the pipeline has one per stage. A model with assumed numbers: with a memory access of $M$ gate levels and a flip-flop overhead of $o$, the periods are $o + 56 + 2M$ and $o + 44$, and the pipeline wins on the C programs for $M$ above about 4.6 ($o = 3$) to 6.2 ($o = 10$). It is a model, not a measurement. The overhead of the flip-flops makes the real ratio worse for the pipeline than the depth ratio, so the depth ratio flatters it.
+
+### 78. The script
+
+`synth/run_synth.ps1` runs four Yosys runs (area and depth for both cores), counts the cells from the `stat` block, and makes 20 checks: Yosys found, and for each core: the exit code, the cell types add up to the reported total, the flip-flops do not exceed the register bits in the code, the design was not deleted, no latch, no problem reported by the check pass, a path length found, and a path longer than 10 cells; and one check that the pipeline's path is shorter. The checks are limits and not exact numbers, so another Yosys version cannot break them; the exact numbers are in the committed `synth/results.txt`, which the script writes only when every check passed, so a failed run never leaves wrong numbers behind. It prints `PASS: SYNTH, 20 checks, 0 errors`. It is not in `run_all.ps1`, which must work without WSL and Yosys.
+
+Two bugs in the script's own checks. The latch check used `Select-String`, which ignores case, and so also matched Yosys's harmless "No latch inferred" lines: 2 false failures. The check for "Found and reported 0 problems" assumed that the line appears once, but it appears several times, so the check now fails on a line that reports 1 or more problems. Both were found on the first run, and the numbers were right from the start.
+
+Bug put in on purpose: the `default` case of the ALU was commented out. Six of the sixteen operation codes then have no value, so a latch appears. The script failed on the latch check for both cores, as predicted.
+
+### 79. A blocked library in the compiler
+
+After the ALU break, `run_all.ps1` gave 15 of 21: the four C programs failed with `FAILED: assembling start.S`, and `core` and `pipe_vs_single` failed because the hex files of the C programs were missing. `build.ps1` deletes a program's output files before it builds them, so a failed build leaves them missing, and the first suspect, the ALU break, was wrong (`alu` and `core_pipe` still passed). `git restore sw` brought the files back. `riscv-none-elf-gcc` itself answered, but the Code Integrity log showed Smart App Control refusing to let the assembler `as.exe` load `libzstd.dll` (09:45 and 09:49), the same feature that had blocked `yosys-abc.exe`. After Smart App Control was switched off, `build.ps1 first` built 20 code words, `git status` was clean (so the rebuilt hex file is identical to the committed one), and the suite passed again. The cause that made it start blocking on that day is not known.
+
+### 80. What Part 10 does not show
+
+The cells are generic and not equal in size, so no area is known in real units. The memories are not in any number, neither their area nor their access time. The logic depth is topological, so it counts paths that can never be active, and it has no wire delay, no placement and no flip-flop overhead, so it is not a clock period. No number here says which core is faster; it only narrows the question, and the model above shows what would decide it. Four unused pipeline bits were not named, and the 1.3 to 1.7 percent difference between flat and module-by-module cell counts was not explained. The numbers come from Yosys 0.52 and could differ in another version. There is no placement, routing, power estimate or FPGA run, and the register file still keeps the 32 flip-flops of x0.
